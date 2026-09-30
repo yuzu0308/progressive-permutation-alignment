@@ -1,0 +1,11 @@
+# Model pairs used in the paper (NeRF Synthetic, nerfstudio vanilla-nerf, 1M iterations).
+# run_dir: nerfstudio output directory name (outputs/unnamed/vanilla-nerf/<run_dir>) of the original runs.
+# data_dir: directory name under data/nerf_synthetic.
+lego:      {data_dir: lego,      seed_a: 42, run_a: 2025-07-30_112920, seed_b: 100, run_b: 2025-08-04_100510}
+chair:     {data_dir: chair,     seed_a: 42, run_a: 2025-08-01_135916, seed_b: 100, run_b: 2025-08-08_101636}
+ficus:     {data_dir: ficus,     seed_a: 42, run_a: 2025-08-10_155214, seed_b: 100, run_b: 2025-08-14_231641}
+hotdog:    {data_dir: hotdog,    seed_a: 42, run_a: 2025-08-16_182731, seed_b: 100, run_b: 2025-08-20_182922}
+mic:       {data_dir: mic,       seed_a: 42, run_a: 2025-12-16_165748, seed_b: 100, run_b: 2025-12-23_185915}
+ship:      {data_dir: ship,      seed_a: 42, run_a: 2026-01-22_152909, seed_b: 100, run_b: 2026-01-24_122628}
+materials: {data_dir: materials, seed_a: 42, run_a: 2026-02-02_145538, seed_b: 100, run_b: 2026-02-04_151242}
+drums:     {data_dir: drums,     seed_a: 42, run_a: 2026-02-13_104620, seed_b: 100, run_b: 2026-02-15_094817}

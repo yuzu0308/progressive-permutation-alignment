@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ppa"
+version = "1.0.0"
+description = "Progressive Permutation Alignment with Temperature-Controlled Spectral Sharpening (ACCV 2026)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+authors = [{ name = "Yuta Horioka" }, { name = "Naoya Chiba" }, { name = "Yuki Uranishi" }]
+dependencies = ["torch>=2.0", "numpy", "scipy"]
+
+[project.optional-dependencies]
+# Rendering-based NeRF evaluation (paper: nerfstudio 1.1.5, torch 2.1.2+cu118).
+nerf = ["nerfstudio==1.1.5", "torchmetrics", "scikit-image", "pillow", "pyyaml", "matplotlib", "tqdm"]
+# MLP5 / VGG11 / ResNet18 shuffle-recovery benchmark.
+cnn = ["torchvision"]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools]
+packages = ["ppa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["UP006", "UP007", "UP035", "UP045"]  # keep Python 3.8 compatible typing
