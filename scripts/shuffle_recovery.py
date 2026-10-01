@@ -77,17 +77,22 @@ def run_method(
     return fn(spec, a, b, tau=float(tau), seed=0, device=device, timeout=TIMEOUT, **cfg[kind]).perms
 
 
-def cases(model: str, weights: Path) -> List[Tuple[str, PermutationSpec, Params, int]]:
-    """``(case name, spec, model A parameters, shuffle seed)`` for one model family."""
+def cases(
+    model: str, weights: Path, pretrained: bool = False, seeds: List[int] = SEEDS
+) -> List[Tuple[str, PermutationSpec, Params, int]]:
+    """``(case name, spec, model A parameters, shuffle seed)`` for one model family.
+
+    With ``pretrained`` model A is the same ImageNet model for every seed; only the shuffle changes.
+    """
     if model == "nerf":
         spec = vanilla_nerf_permutation_spec()
         return [(s, spec, filter_nerf_params(load_state_dict(weights / s / "model_a.pth")), 42) for s in SCENES]
     from ppa import zoo
 
     out = []
-    for seed in SEEDS:
+    for seed in seeds:
         torch.manual_seed(seed)
-        module, spec = zoo.build(model)
+        module, spec = zoo.build(model, pretrained=pretrained)
         out.append((f"seed{seed}", spec, zoo.state_params(module), seed))
     return out
 
@@ -102,15 +107,19 @@ def main() -> None:
     parser.add_argument("--weights", type=Path, default=Path(__file__).resolve().parents[1] / "weights")
     parser.add_argument("--out", type=Path, default=Path("results/shuffle"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--pretrained", action="store_true", help="ImageNet weights for VGG11 / ResNet18")
+    parser.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
     args = parser.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
     path = args.out / "shuffle_recovery.json"
     records = json.loads(path.read_text()) if path.exists() else []
     done = {(r["model"], r["case"], r["method"]) for r in records}
-    for model in args.models:
-        domain = "nerf" if model == "nerf" else "cnn"
-        for case, spec, a, seed in cases(model, args.weights):
+    for base_model in args.models:
+        domain = "nerf" if base_model == "nerf" else "cnn"
+        pretrained = args.pretrained and base_model in ("vgg11", "resnet18")
+        model = f"{base_model}-pretrained" if pretrained else base_model
+        for case, spec, a, seed in cases(base_model, args.weights, pretrained, args.seeds):
             b, gt = shuffle(spec, a, seed)
             for method in args.methods:
                 if (model, case, method) in done:
@@ -138,7 +147,7 @@ def main() -> None:
                       f"prec={100 * rec['precision']:6.2f}% time={elapsed:8.2f}s", flush=True)  # fmt: skip
 
     print("\nmean ± std")
-    for model in args.models:
+    for model in dict.fromkeys(r["model"] for r in records):  # models in the order they were run
         for method in args.methods:
             rs = [r for r in records if r["model"] == model and r["method"] == method]
             if not rs:

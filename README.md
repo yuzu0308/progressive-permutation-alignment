@@ -94,8 +94,10 @@ Method names: `ours`, `ours-no-ref`, the ablations `ours-no-svd[-no-ref]`, `ours
   100 sweeps until the alignment cost stops decreasing.
 * As in OT4P, the last column of the anchor is sign-flipped when its determinant is negative, so at τ = 1
   the update equals `C` up to the sign of its last column.
-* The OT4P baselines use the modified `orth2perm` described above and random initialisation. The original
-  scripts did not fix a seed; ours default to `--seed 0`, so their numbers differ slightly from the paper.
+* The OT4P baselines use OT4P's original `orth2perm` (eigendecomposition power, no anchoring to the identity),
+  bit-identical to the upstream implementation; `variant="modified"` switches to the map of our method. They
+  start from random parameters and the original scripts did not fix a seed; ours default to `--seed 0`, so
+  their numbers differ slightly from the paper.
 * Metrics: by default every method is evaluated the same way, on the float renders with torchmetrics' SSIM
   (Gaussian window). This reproduces all RMSE / PSNR values of the paper. A few table entries were computed
   differently in the paper; they can be obtained with the following options:
