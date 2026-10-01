@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+# Downloaded / generated data (distributed via Hugging Face Hub)
+weights/
+data/
+outputs/
+results/
+results_run.log
+weights_release/
