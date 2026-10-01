@@ -196,7 +196,10 @@ def ste_alignment(
                 ste_b = permuted_b[k].detach() + (proxy[k] - proxy[k].detach())
                 merged[k] = (1.0 - lam) * va + lam * ste_b
         state = {**dict(model_a.named_parameters()), **dict(model_a.named_buffers()), **merged}
-        outputs = functional_call(model_a, state, (ray_bundle,))
+        try:
+            outputs = functional_call(model_a, state, (ray_bundle,), tie_weights=False)
+        except TypeError:  # torch versions without ``tie_weights``
+            outputs = functional_call(model_a, state, (ray_bundle,))
         loss = F.mse_loss(outputs["rgb_fine"] if "rgb_fine" in outputs else outputs["rgb"], gt)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
