@@ -29,16 +29,32 @@ def test_weight_matching_recovers_shuffle(skip_mlp: Dict[str, object], fn) -> No
     assert squared_distance(params, apply_permutation(spec, shuffled, perms)) == 0.0  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("variant", ["original", "modified"])
 @pytest.mark.parametrize("fn", [ot4p, progressive_ot4p])
-def test_ot4p_is_repeatable_with_seed(skip_mlp: Dict[str, object], fn) -> None:
+def test_ot4p_is_repeatable_with_seed(skip_mlp: Dict[str, object], fn, variant: str) -> None:
     spec = permutation_spec_from_axes_to_perm(skip_mlp["axes"])  # type: ignore[arg-type]
     params = skip_mlp["params"]
-    r1 = fn(spec, params, params, tau=0.5, seed=3, max_iterations=20)  # type: ignore[arg-type]
-    r2 = fn(spec, params, params, tau=0.5, seed=3, max_iterations=20)  # type: ignore[arg-type]
+    r1 = fn(spec, params, params, tau=0.5, seed=3, max_iterations=20, variant=variant)  # type: ignore[arg-type]
+    r2 = fn(spec, params, params, tau=0.5, seed=3, max_iterations=20, variant=variant)  # type: ignore[arg-type]
     for k in r1.matrices:
         assert torch.equal(r1.matrices[k], r2.matrices[k])
     for q in r1.matrices.values():
         torch.testing.assert_close(q @ q.T, torch.eye(q.shape[0]), atol=1e-4, rtol=1e-4)
+
+
+def test_ot4p_original_map_endpoints() -> None:
+    """OT4P's orth2perm returns the input at tau = 1 and the Hungarian anchor at tau = 0 (det > 0 case)."""
+    from ppa.baselines.ot4p import orth2perm
+    from ppa.spectral import hungarian
+
+    torch.manual_seed(0)
+    q, _ = torch.linalg.qr(torch.randn(8, 8))
+    p0 = orth2perm(q, 0.0)
+    assert p0.abs().argmax(1).tolist() == hungarian(q).tolist()
+    sign = torch.sign(torch.linalg.det(torch.eye(8)[hungarian(q)]))
+    expected = q.clone()
+    expected[:, -1] *= sign
+    torch.testing.assert_close(orth2perm(q, 1.0), expected, atol=1e-4, rtol=1e-4)
 
 
 def test_apply_matrices_conv_matches_index_permutation() -> None:

@@ -97,24 +97,32 @@ def resnet18_spec() -> PermutationSpec:
     return permutation_spec_from_axes_to_perm(axes)
 
 
-def build(model: str) -> Tuple[nn.Module, PermutationSpec]:
-    """Randomly initialised model and its spec (seed the global torch RNG beforehand).
+def build(model: str, pretrained: bool = False) -> Tuple[nn.Module, PermutationSpec]:
+    """Model and its spec.
+
+    The paper runs used randomly initialised models (seed the global torch RNG beforehand).
+    ``pretrained=True`` loads torchvision's ImageNet weights (``IMAGENET1K_V1``) instead.
 
     Args:
         model: ``mlp5``, ``vgg11`` or ``resnet18``.
+        pretrained: Use ImageNet weights (VGG11 / ResNet18 only).
 
     Returns:
         ``(module, spec)``.
 
     Raises:
-        ValueError: For an unknown model name.
+        ValueError: For an unknown model name, or ``pretrained`` with ``mlp5``.
     """
+    if pretrained and model == "mlp5":
+        raise ValueError("no pretrained weights for mlp5")
     factories: Dict[str, Callable[[], Tuple[nn.Module, PermutationSpec]]] = {"mlp5": lambda: (MLP5(), mlp5_spec())}
     if model in ("vgg11", "resnet18"):
         import torchvision.models as tvm
 
-        factories["vgg11"] = lambda: (tvm.vgg11(weights=None), vgg11_spec())
-        factories["resnet18"] = lambda: (tvm.resnet18(weights=None), resnet18_spec())
+        vgg_w = tvm.VGG11_Weights.IMAGENET1K_V1 if pretrained else None
+        res_w = tvm.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
+        factories["vgg11"] = lambda: (tvm.vgg11(weights=vgg_w), vgg11_spec())
+        factories["resnet18"] = lambda: (tvm.resnet18(weights=res_w), resnet18_spec())
     if model not in factories:
         raise ValueError(f"unknown model {model}")
     return factories[model]()

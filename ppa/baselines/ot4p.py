@@ -1,8 +1,10 @@
 """OT4P baselines (Guo et al., NeurIPS 2024): gradient descent over an orthogonal relaxation.
 
 Adapted from https://github.com/YamingGuo98/OT4P (MIT License, Copyright (c) 2024 Yaming Guo).
-As in the paper's experiments, the temperature map ``orth2perm`` is the modified one in
-:func:`ppa.spectral.sharpen` (SVD power + identity anchoring); see THIRD_PARTY_NOTICES.md.
+The temperature map ``orth2perm`` is OT4P's original one (``variant="original"``, default): the
+matrix power uses an eigendecomposition and there is no anchoring to the identity. The variant used
+by our method (:func:`ppa.spectral.sharpen`, SVD power + identity anchoring) is available as
+``variant="modified"``; some runs of the research code used it for the baselines as well.
 
 * :func:`ot4p` ("OT4P"): all groups are optimised jointly with AdamW.
 * :func:`progressive_ot4p` ("Progressive OT4P"): groups are optimised one at a time (sorted
@@ -25,7 +27,35 @@ import torch.nn as nn
 from ppa.align import squared_distance
 from ppa.ops import Params, apply_matrices, perm_size
 from ppa.spec import PermutationSpec
-from ppa.spectral import project_to_permutation, sharpen
+from ppa.spectral import _hungarian_anchor, project_to_permutation, sharpen
+
+VARIANTS = ("original", "modified")
+
+
+def eig_power(matrix: torch.Tensor, s: float) -> torch.Tensor:
+    """OT4P's matrix power ``V diag(L^s) V^{-1}`` via an eigendecomposition (real part returned).
+
+    Computed on the CPU: complex powers are JIT-compiled by PyTorch on CUDA, which fails on GPUs newer
+    than the installed CUDA toolkit (e.g. an RTX 5090 with CUDA 11.8 wheels).
+    """
+    eigvals, eigvecs = torch.linalg.eig(matrix.detach().cpu())
+    out = torch.real(eigvecs @ torch.diag_embed(eigvals**s) @ torch.linalg.inv(eigvecs))
+    return out.to(matrix.device)
+
+
+def orth2perm(orth: torch.Tensor, tau: float) -> torch.Tensor:
+    """OT4P's original ``orth2perm`` for one ``(n, n)`` orthogonal matrix.
+
+    ``P_hat = Hungarian(O)`` and the result is ``P_hat (P_hat^T O)^tau`` with an eigendecomposition
+    power, with OT4P's determinant sign adjustment of the last column.
+    """
+    o = orth.unsqueeze(0)
+    p_hat = _hungarian_anchor(o)
+    adjust = (-2 * (torch.linalg.det(p_hat) < 0).float() + 1).unsqueeze(1)
+    p_hat[:, :, -1].mul_(adjust)
+    out = p_hat @ eig_power(p_hat.transpose(-2, -1) @ o, tau)
+    out[:, :, -1].mul_(adjust)
+    return out.squeeze(0)
 
 
 def random_block_rotation(batch: int, n: int) -> torch.Tensor:
@@ -47,15 +77,22 @@ def random_block_rotation(batch: int, n: int) -> torch.Tensor:
 class OT4P(nn.Module):
     """Orthogonal relaxation ``R^{n x n} -> O(n)`` concentrated near permutations as ``tau -> 0``."""
 
-    def __init__(self, size: int, batch: int = 1) -> None:
+    def __init__(self, size: int, batch: int = 1, variant: str = "original") -> None:
         """Create the module with a random base rotation.
 
         Args:
             size: Matrix size ``n``.
             batch: Batch size.
+            variant: ``original`` (OT4P's eigendecomposition map) or ``modified`` (:func:`sharpen`).
+
+        Raises:
+            ValueError: For an unknown variant.
         """
         super().__init__()
+        if variant not in VARIANTS:
+            raise ValueError(f"variant must be one of {VARIANTS}, got {variant}")
         self.register_buffer("base", random_block_rotation(batch, size))
+        self.target_map = orth2perm if variant == "original" else sharpen
 
     @staticmethod
     def ver2orth(matrix: torch.Tensor) -> torch.Tensor:
@@ -70,7 +107,7 @@ class OT4P(nn.Module):
             matrix = matrix.unsqueeze(0)
         orth = self.base @ self.ver2orth(matrix)
         with torch.no_grad():
-            target = torch.stack([sharpen(o, tau) for o in orth])
+            target = torch.stack([self.target_map(o, tau) for o in orth])
             trans = target @ orth.transpose(-2, -1)
         out = trans @ orth
         return out.squeeze(0) if squeeze else out
@@ -96,7 +133,14 @@ class OT4PResult:
     perms: Dict[str, torch.Tensor]
 
 
-def _setup(spec: PermutationSpec, a: Params, device: str, seed: Optional[int], init_scale: float = 0.1):
+def _setup(
+    spec: PermutationSpec,
+    a: Params,
+    device: str,
+    seed: Optional[int],
+    init_scale: float = 0.1,
+    variant: str = "original",
+):
     if seed is not None:
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -108,7 +152,7 @@ def _setup(spec: PermutationSpec, a: Params, device: str, seed: Optional[int], i
             continue
         n = perm_size(spec, a, pid)
         sizes[pid] = n
-        modules[pid] = OT4P(n).to(device)
+        modules[pid] = OT4P(n, variant=variant).to(device)
         init = torch.randn(n, n, device=device)
         weights[pid] = nn.Parameter(init if init_scale == 1.0 else init * init_scale)
     return modules, weights, sizes, sorted(sizes)
@@ -146,6 +190,7 @@ def ot4p(
     log: Optional[Callable[[str], None]] = None,
     timeout: Optional[float] = None,
     init_scale: float = 0.1,
+    variant: str = "original",
 ) -> OT4PResult:
     """OT4P: joint AdamW over all groups at a fixed temperature, with early stopping.
 
@@ -163,13 +208,14 @@ def ot4p(
         log: Optional logging callback.
         timeout: Stop optimising after this many seconds (paper: 3600 for Table 1).
         init_scale: Std of the random initial parameters (paper runs: 0.1 for NeRF, 1.0 for MLP5/CNNs).
+        variant: ``original`` OT4P map or the ``modified`` one of our method.
 
     Returns:
         The result.
     """
     a = {k: v.to(device) for k, v in params_a.items() if k in spec.axes_to_perm}
     b = {k: v.to(device) for k, v in params_b.items() if k in spec.axes_to_perm}
-    modules, weights, _, order = _setup(spec, a, device, seed, init_scale)
+    modules, weights, _, order = _setup(spec, a, device, seed, init_scale, variant)
     optimizer = torch.optim.AdamW(weights.values(), lr=lr)
     best = float("inf")
     stall = 0
@@ -209,6 +255,7 @@ def progressive_ot4p(
     device: str = "cpu",
     log: Optional[Callable[[str], None]] = None,
     timeout: Optional[float] = None,
+    variant: str = "original",
 ) -> OT4PResult:
     """Progressive OT4P: layer-by-layer AdamW at a fixed temperature.
 
@@ -225,13 +272,14 @@ def progressive_ot4p(
         device: Torch device.
         log: Optional logging callback.
         timeout: Stop optimising after this many seconds (paper: 3600 for Table 1).
+        variant: ``original`` OT4P map or the ``modified`` one of our method.
 
     Returns:
         The result.
     """
     a = {k: v.to(device) for k, v in params_a.items() if k in spec.axes_to_perm}
     b = {k: v.to(device) for k, v in params_b.items() if k in spec.axes_to_perm}
-    modules, weights, sizes, order = _setup(spec, a, device, seed)
+    modules, weights, sizes, order = _setup(spec, a, device, seed, variant=variant)
     current: Dict[str, torch.Tensor] = {pid: torch.eye(sizes[pid], device=device) for pid in order}
     start = time.perf_counter()
     for pid in order:
