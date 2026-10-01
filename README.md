@@ -82,6 +82,33 @@ Method names: `ours`, `ours-no-ref`, the ablations `ours-no-svd[-no-ref]`, `ours
 `prog-ot4p-{0.3,0.5,0.7}`, `am`, `ste`. Evaluating one method on all scenes at a single λ takes about
 20 minutes on an RTX 5090, dominated by volume rendering.
 
+## Results obtained with this code
+
+NeRF interpolation barrier at λ = 0.5, mean over the 8 scenes of NeRF Synthetic (10 test views each), seeds
+42 → 100, metrics on the float renders (RTX 5090). OT4P baselines with `--seed 0`.
+
+| Method | RMSE ↓ | PSNR ↑ | SSIM ↑ |
+|---|---:|---:|---:|
+| Naive | 0.491 | 6.21 | 0.627 |
+| Weight Matching | 0.294 | 11.07 | 0.653 |
+| Progressive WM | 0.306 | 10.64 | 0.637 |
+| OT4P (τ = 0.3 / 0.5 / 0.7) | 0.501 / 0.497 / 0.498 | 6.02 / 6.11 / 6.08 | 0.622 / 0.624 / 0.622 |
+| Progressive OT4P (τ = 0.3 / 0.5 / 0.7) | 0.493 / 0.494 / 0.496 | 6.16 / 6.14 / 6.10 | 0.627 / 0.620 / 0.626 |
+| Activation Matching (data-dependent) | 0.162 | 16.17 | 0.775 |
+| STE | 0.268 | 11.84 | 0.663 |
+| Ours w/o refinement | 0.199 | 14.22 | 0.697 |
+| **Ours** | **0.199** | **14.40** | **0.710** |
+
+Shuffle recovery (model B is a randomly permuted copy of model A): precision of the recovered permutation
+in %, mean over 5 seeds (MLP5 and ResNet18, random initialisation) or 8 scenes (NeRF). WM, Progressive WM
+and Ours recover every permutation exactly (L1 = 0) in all three settings.
+
+| Method | MLP5 | ResNet18 | NeRF |
+|---|---:|---:|---:|
+| OT4P (τ = 0.3 / 0.5 / 0.7) | 100 / 100 / 100 | 99.90 / 99.92 / 99.88 | 7.51 / 99.16 / 99.19 |
+| Progressive OT4P (τ = 0.3 / 0.5 / 0.7) | 34.67 / 51.76 / 66.78 | 32.60 / 45.73 / 52.94 | 1.39 / 3.66 / 6.39 |
+| WM, Progressive WM, Ours | 100 | 100 | 100 |
+
 ## Notes on reproducibility
 
 * The implementation reproduces the permutations of the code used for the paper bit-for-bit
@@ -94,8 +121,10 @@ Method names: `ours`, `ours-no-ref`, the ablations `ours-no-svd[-no-ref]`, `ours
   100 sweeps until the alignment cost stops decreasing.
 * As in OT4P, the last column of the anchor is sign-flipped when its determinant is negative, so at τ = 1
   the update equals `C` up to the sign of its last column.
-* The OT4P baselines use the modified `orth2perm` described above and random initialisation. The original
-  scripts did not fix a seed; ours default to `--seed 0`, so their numbers differ slightly from the paper.
+* The OT4P baselines use OT4P's original `orth2perm` (eigendecomposition power, no anchoring to the identity),
+  bit-identical to the upstream implementation; `variant="modified"` switches to the map of our method. They
+  start from random parameters and the original scripts did not fix a seed; ours default to `--seed 0`, so
+  their numbers differ slightly from the paper.
 * Metrics: by default every method is evaluated the same way, on the float renders with torchmetrics' SSIM
   (Gaussian window). This reproduces all RMSE / PSNR values of the paper. A few table entries were computed
   differently in the paper; they can be obtained with the following options:

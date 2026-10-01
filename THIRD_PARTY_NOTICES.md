@@ -2,19 +2,15 @@
 
 ## OT4P
 
-`ppa/spectral.py` (and the OT4P baseline in `ppa/baselines/`) contain code adapted from
+`ppa/baselines/ot4p.py` (the OT4P baselines) and `ppa/spectral.py` (our method) contain code adapted from
 OT4P, https://github.com/YamingGuo98/OT4P (commit 99915004, 2024-11-08).
 
-Modifications:
-
-- The matrix power in `orth2perm` is computed with an SVD, `U diag(S^tau) V^T`, instead of an
-  eigendecomposition.
-- The powered matrix is anchored to the identity, `tau * M^<tau> + (1 - tau) I`, before being
-  multiplied by the Hungarian anchor.
-- The batched linear assignment uses `scipy.optimize.linear_sum_assignment` instead of
-  `torch_linear_assignment`.
-
-Note that the "OT4P" baselines reported in the paper use this modified `orth2perm`.
+- `ppa/baselines/ot4p.py` reimplements OT4P's `orth2perm`, `ver2orth`, `update_base` and random base
+  initialisation without changes to the computation (verified bit-identical); only the batched linear
+  assignment uses `scipy.optimize.linear_sum_assignment` instead of `torch_linear_assignment`.
+- `ppa/spectral.py` modifies `orth2perm` for our method: the matrix power is computed with an SVD,
+  `U diag(S^tau) V^T`, instead of an eigendecomposition, and the powered matrix is anchored to the identity,
+  `tau * M^<tau> + (1 - tau) I`, before being multiplied by the Hungarian anchor.
 
 ```
 MIT License
