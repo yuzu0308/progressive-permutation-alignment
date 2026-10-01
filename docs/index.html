@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progressive Permutation Alignment</title>
+<meta name="description" content="Progressive Permutation Alignment with Temperature-Controlled Spectral Sharpening (ACCV 2026). Aligning independently trained NeRFs by layer-wise spectral annealing.">
+<meta property="og:title" content="Progressive Permutation Alignment with Temperature-Controlled Spectral Sharpening">
+<meta property="og:description" content="ACCV 2026. Deterministic, lightweight neuron alignment that lowers the loss barrier between independently trained NeRFs.">
+<meta property="og:image" content="static/img/overview.png">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c1c1e; --muted: #5f6368; --line: #e3e3e6; --card: #f6f6f8;
+    --accent: #1f5fae; --accent-fg: #ffffff; --ours: #c2410c; --code: #f3f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151517; --fg: #ececf0; --muted: #a0a0a8; --line: #2e2e33; --card: #1e1e22;
+      --accent: #6aa3ff; --accent-fg: #0b1220; --ours: #fb923c; --code: #222227;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151517; --fg: #ececf0; --muted: #a0a0a8; --line: #2e2e33; --card: #1e1e22;
+    --accent: #6aa3ff; --accent-fg: #0b1220; --ours: #fb923c; --code: #222227;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 17px/1.65 "Source Sans 3", "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 48px 16px 96px; }
+  header { text-align: center; }
+  h1 { font-size: clamp(1.6rem, 4vw, 2.3rem); line-height: 1.25; margin: 0 0 .9rem; font-weight: 700; }
+  .venue { color: var(--accent); font-weight: 600; letter-spacing: .02em; margin-bottom: .6rem; }
+  .authors { font-size: 1.1rem; }
+  .authors span { white-space: nowrap; margin: 0 .5rem; }
+  .affil, .note { color: var(--muted); font-size: .95rem; }
+  .links { display: flex; flex-wrap: wrap; justify-content: center; gap: .6rem; margin: 1.4rem 0 0; }
+  .links a { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem 1.1rem; border-radius: 999px;
+             background: var(--fg); color: var(--bg); text-decoration: none; font-weight: 600; font-size: .95rem; }
+  .links a.disabled { opacity: .35; pointer-events: none; }
+  .links svg { width: 1.05em; height: 1.05em; fill: currentColor; }
+  h2 { font-size: 1.45rem; margin: 3.2rem 0 1rem; text-align: center; }
+  p { margin: 0 0 1rem; }
+  .abstract { text-align: justify; hyphens: auto; }
+  figure { margin: 1.4rem 0; }
+  figure img { width: 100%; height: auto; display: block; border-radius: 6px; background: #fff; }
+  figcaption { color: var(--muted); font-size: .92rem; margin-top: .6rem; }
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 1rem 0; }
+  .steps li { counter-increment: s; position: relative; padding-left: 2.2rem; margin-bottom: .6rem; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: .1rem; width: 1.5rem; height: 1.5rem;
+                      border-radius: 50%; background: var(--card); border: 1px solid var(--line);
+                      text-align: center; font-size: .85rem; line-height: 1.45rem; font-weight: 600; }
+  .demo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.4rem; margin-bottom: 1rem; }
+  .scenes { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .scenes button { font: inherit; font-size: .9rem; padding: .25rem .7rem; border-radius: 999px;
+                   border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  .scenes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .slider { display: flex; align-items: center; gap: .6rem; flex: 1 1 260px; }
+  .slider input { flex: 1; accent-color: var(--accent); }
+  .slider output { font-variant-numeric: tabular-nums; min-width: 4.2rem; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; }
+  .grid div { text-align: center; font-size: .9rem; }
+  .grid img { width: 100%; aspect-ratio: 1; display: block; border-radius: 4px; background: #fff; }
+  .grid .ours b { color: var(--ours); }
+  @media (max-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; margin: 1rem auto; font-size: .95rem; min-width: 420px; }
+  th, td { padding: .35rem .9rem; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { border-bottom: 2px solid var(--fg); }
+  tr.ours td { font-weight: 700; color: var(--ours); }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; overflow-x: auto;
+        font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .copy { float: right; font: inherit; font-size: .8rem; padding: .15rem .6rem; border-radius: 6px;
+          border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  footer { margin-top: 4rem; color: var(--muted); font-size: .85rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="venue">ACCV 2026</div>
+  <h1>Progressive Permutation Alignment with<br>Temperature-Controlled Spectral Sharpening</h1>
+  <div class="authors">
+    <span>Yuta Horioka<sup>*</sup></span><span>Naoya Chiba<sup>*</sup></span><span>Yuki Uranishi</span>
+  </div>
+  <div class="affil">The University of Osaka</div>
+  <div class="note"><sup>*</sup>Equal contribution</div>
+  <nav class="links" aria-label="Resources">
+    <!-- TODO: set the paper / supplementary URLs once the proceedings are online. -->
+    <a class="disabled" href="#" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6zM14 3v5h5"/></svg>Paper</a>
+    <a class="disabled" href="#" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6zM14 3v5h5"/></svg>Supplementary</a>
+    <a href="https://github.com/yuzu0308/progressive-permutation-alignment"><svg viewBox="0 0 24 24"><path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C17.3 4.6 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5z"/></svg>Code</a>
+    <a class="disabled" href="#" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M4 4h16v4H4zm0 6h16v10H4z"/></svg>Weights</a>
+  </nav>
+</header>
+
+<figure>
+  <img src="static/img/overview.png" alt="Overview: two independently trained neural fields are aligned layer by layer from input to output while the correlation matrices are sharpened toward permutations as the temperature decreases." width="1322" height="767">
+  <figcaption>Two independently trained neural fields N<sub>A</sub> and N<sub>B</sub> differ by hidden-unit permutations. Our method aligns them layer by layer, following the inter-layer dependency from input to output, and sharpens each layer's correlation matrix toward a permutation as the temperature decreases.</figcaption>
+</figure>
+
+<h2>Abstract</h2>
+<p class="abstract">In implicit neural representations (INRs), 3D signals are encoded directly in network weights, making stable weight-space operations essential. However, permutation symmetry causes independently trained yet functionally equivalent models to appear distant in weight space, often inducing large loss barriers under linear interpolation. Existing neuron alignment methods either commit early to discrete matches and become trapped in inconsistent local optima or rely on computationally expensive gradient optimization over continuous relaxations, both of which are unreliable in challenging cases such as NeRF. We adopt progressive alignment, a layer-wise strategy that follows inter-layer dependencies from input to output. At each layer, a correlation matrix is estimated and aligned with a discrete anchor obtained by the Hungarian algorithm, after which temperature-controlled spectral annealing gradually sharpens the correlation structure toward a permutation matrix. This update is deterministic and lightweight, avoiding the inner-loop gradient optimization required by continuous relaxation methods. A final refinement stage further optimizes the network layer-by-layer via weight matching, starting from the aligned solution. Experiments on MLPs, CNNs, and Neural Radiance Fields (NeRFs) show that the proposed method reliably recovers neuron correspondences and achieves stable alignment across architectures. In practical experiments aligning independently trained NeRF models, our method reduces the loss barriers under weight interpolation compared with existing approaches.</p>
+
+<h2>Method</h2>
+<figure>
+  <img src="static/img/method.png" alt="Layer-wise update: correlation matrix, Hungarian anchor, spectral sharpening of the anchored correlation with temperature tau, and the updated soft permutation." width="1322" height="724">
+  <figcaption>Layer-wise update. The correlation matrix C<sub>l</sub> is anchored by its Hungarian solution P̂<sub>l</sub>; the singular values of P̂<sub>l</sub><sup>⊤</sup>C<sub>l</sub> are raised to the power τ, which moves the soft permutation toward P̂<sub>l</sub> as τ goes from 1 to 0.</figcaption>
+</figure>
+<ol class="steps">
+  <li>For each layer, compute the correlation C<sub>l</sub> between model A and model B given the current (soft) permutations of the neighbouring layers.</li>
+  <li>Take the Hungarian solution P̂<sub>l</sub> as a discrete anchor and write M<sub>l</sub> = P̂<sub>l</sub><sup>⊤</sup>C<sub>l</sub> = UΣV<sup>⊤</sup>.</li>
+  <li>Update P<sub>l</sub> ← P̂<sub>l</sub> [ τ UΣ<sup>τ</sup>V<sup>⊤</sup> + (1 − τ) I ] and anneal τ over {1, 0.5, 0}. No gradients or inner optimisation loops are involved.</li>
+  <li>Starting from the result, refine layer by layer with weight matching.</li>
+</ol>
+
+<h2>Interpolating independently trained NeRFs</h2>
+<p>Two vanilla NeRFs trained on the same scene with different seeds are interpolated as (1 − λ)·A + λ·B′, where B′ is model B after alignment. Without alignment the midpoint collapses into a uniform haze. After our alignment the barrier is lower: the object's shape and colours stay recognisable along the path, although the midpoint is still blurred.</p>
+<div class="demo">
+  <div class="controls">
+    <div class="scenes" role="group" aria-label="Scene" id="scenes"></div>
+    <label class="slider">λ <input id="lam" type="range" min="0" max="10" step="1" value="5" aria-label="Interpolation coefficient lambda"><output id="lamv" for="lam">λ = 0.5</output></label>
+  </div>
+  <div class="grid">
+    <div><img id="img-naive" alt="Naive interpolation"><span>Naive</span></div>
+    <div><img id="img-wm" alt="Weight Matching"><span>Weight Matching</span></div>
+    <div class="ours"><img id="img-ours" alt="Ours"><b>Ours</b></div>
+    <div><img id="img-gt" alt="Ground truth test view"><span>Ground truth</span></div>
+  </div>
+</div>
+
+<h2>Results</h2>
+<p>Loss barrier at the midpoint λ = 0.5, averaged over the 8 scenes of NeRF Synthetic (10 test views each).</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Method</th><th>RMSE ↓</th><th>PSNR ↑</th></tr></thead>
+  <tbody>
+    <tr><td>Naive</td><td>0.491</td><td>6.21</td></tr>
+    <tr><td>Weight Matching</td><td>0.294</td><td>11.07</td></tr>
+    <tr><td>Progressive WM</td><td>0.306</td><td>10.64</td></tr>
+    <tr><td>OT4P (τ = 0.5)</td><td>0.495</td><td>6.12</td></tr>
+    <tr><td>Progressive OT4P (τ = 0.5)</td><td>0.493</td><td>6.17</td></tr>
+    <tr><td>Ours w/o refinement</td><td>0.199</td><td>14.22</td></tr>
+    <tr class="ours"><td>Ours</td><td>0.199</td><td>14.40</td></tr>
+  </tbody>
+</table>
+</div>
+<figure>
+  <img src="static/img/curves.png" alt="RMSE and PSNR of the interpolated models as a function of lambda for all methods." width="1466" height="444">
+  <figcaption>RMSE and PSNR along the interpolation path.</figcaption>
+</figure>
+<figure>
+  <img src="static/img/qualitative.png" alt="Rendered interpolations of the lego scene at several lambda values for all methods." width="1254" height="1403" loading="lazy">
+  <figcaption>Interpolations of the lego scene: (a) Naive, (b) Weight Matching, (c) Progressive WM, (d) OT4P, (e) Progressive OT4P, (f) Ours without refinement, (g) Ours.</figcaption>
+</figure>
+
+<h2>BibTeX</h2>
+<pre><button class="copy" id="copy" type="button">Copy</button><code id="bib">@inproceedings{horioka2026progressive,
+  title     = {Progressive Permutation Alignment with Temperature-Controlled Spectral Sharpening},
+  author    = {Horioka, Yuta and Chiba, Naoya and Uranishi, Yuki},
+  booktitle = {Proceedings of the Asian Conference on Computer Vision (ACCV)},
+  year      = {2026}
+}</code></pre>
+
+<footer>This work was supported by JST PRESTO Grant Number JPMJPR25T6.</footer>
+</main>
+<script>
+  const SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums"];
+  const box = document.getElementById("scenes");
+  const lam = document.getElementById("lam");
+  const out = document.getElementById("lamv");
+  let scene = "lego";
+  function render() {
+    const l = (lam.value / 10).toFixed(1);
+    out.textContent = "λ = " + l;
+    for (const m of ["naive", "wm", "ours"]) document.getElementById("img-" + m).src = `static/lmc/${scene}/${m}_${l}.jpg`;
+    document.getElementById("img-gt").src = `static/lmc/${scene}/gt.jpg`;
+    for (const b of box.children) b.setAttribute("aria-pressed", String(b.dataset.scene === scene));
+  }
+  for (const s of SCENES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = s; b.dataset.scene = s;
+    b.addEventListener("click", () => { scene = s; render(); });
+    box.appendChild(b);
+  }
+  lam.addEventListener("input", render);
+  render();
+  // Preload the current scene so that dragging the slider is smooth.
+  function preload(s) { for (const m of ["naive", "wm", "ours"]) for (let i = 0; i <= 10; i++) new Image().src = `static/lmc/${s}/${m}_${(i / 10).toFixed(1)}.jpg`; }
+  preload(scene);
+  box.addEventListener("click", () => preload(scene));
+  document.getElementById("copy").addEventListener("click", async (e) => {
+    try { await navigator.clipboard.writeText(document.getElementById("bib").textContent); e.target.textContent = "Copied"; }
+    catch (err) { e.target.textContent = "Copy failed"; console.error(err); }
+    setTimeout(() => (e.target.textContent = "Copy"), 1500);
+  });
+</script>
+</body>
+</html>
