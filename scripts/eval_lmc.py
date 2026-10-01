@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ppa import interpolate  # noqa: E402
 from ppa import render as R  # noqa: E402
-from ppa.metrics import ssim  # noqa: E402
+from ppa.metrics import ssim, ssim_skimage  # noqa: E402
 from ppa.nerf import load_state_dict  # noqa: E402
 
 
@@ -66,6 +66,9 @@ def main() -> None:
                 per[key]["psnr"].append(R.psnr(pred, gts[idx]))
                 per[key]["rmse"].append(R.rmse(pred, gts[idx]))
                 per[key]["ssim"].append(ssim(pred, gts[idx]))
+            per["png"].setdefault("ssim_skimage", []).append(
+                ssim_skimage(png.astype(np.float32) / 255.0, gts[idx].cpu().numpy())
+            )
         for key in ("float", "png"):
             result[f"metrics_{key}"][f"{lam:.1f}"] = per[key]  # type: ignore[index]
         f = {m: float(np.mean(v)) for m, v in per["float"].items()}
