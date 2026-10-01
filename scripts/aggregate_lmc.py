@@ -23,10 +23,31 @@ SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums
 METRICS = ("rmse", "psnr", "ssim")
 
 
-def load(results: Path, scene: str, method: str, source: str) -> Dict[str, Dict[str, List[float]]]:
-    """Per-lambda metric lists of one scene/method (``source`` is ``float`` or ``png``)."""
+def load(results: Path, scene: str, method: str, source: str, ssim: str) -> Dict[str, Dict[str, List[float]]]:
+    """Per-lambda metric lists of one scene/method.
+
+    Args:
+        results: Results root.
+        scene: Scene name.
+        method: Method name.
+        source: ``float`` or ``png`` (images the PSNR / RMSE are computed on).
+        ssim: ``torchmetrics`` (computed on ``source``) or ``skimage`` (always on the PNGs).
+
+    Returns:
+        ``{lambda: {"psnr": [...], "rmse": [...], "ssim": [...]}}``.
+
+    Raises:
+        KeyError: If ``skimage`` SSIM was requested but not recorded (run ``add_skimage_ssim.py``).
+    """
     data = json.loads((results / scene / method / "lmc" / "lmc.json").read_text())
-    return data[f"metrics_{source}"]
+    metrics = {lam: dict(m) for lam, m in data[f"metrics_{source}"].items()}
+    if ssim == "skimage":
+        for lam, m in metrics.items():
+            png = data["metrics_png"][lam]
+            if "ssim_skimage" not in png:
+                raise KeyError(f"{scene}/{method}: no ssim_skimage, run scripts/add_skimage_ssim.py")
+            m["ssim"] = png["ssim_skimage"]
+    return metrics
 
 
 def main() -> None:
@@ -37,6 +58,12 @@ def main() -> None:
     parser.add_argument("--scenes", nargs="+", default=SCENES)
     parser.add_argument(
         "--source", choices=["float", "png"], default="float", help="metrics on float renders (paper) or 8-bit PNGs"
+    )
+    parser.add_argument(
+        "--ssim",
+        choices=["torchmetrics", "skimage"],
+        default="torchmetrics",
+        help="SSIM implementation; the paper used skimage for the Naive/WM/Prog. WM rows of supp. Tables 2-3",
     )
     parser.add_argument("--lam", default="0.5")
     parser.add_argument("--json", type=Path, default=None, help="also write the table as JSON")
@@ -53,13 +80,13 @@ def main() -> None:
             print(f"[warn] {method}: missing scenes {missing}; averaging over {len(present)}", file=sys.stderr)
         if not present:
             continue
-        per_scene = [load(args.results, s, method, args.source) for s in present]
+        per_scene = [load(args.results, s, method, args.source, args.ssim) for s in present]
         lams = sorted(per_scene[0], key=float)
         table[method] = {m: float(np.mean([np.mean(d[args.lam][m]) for d in per_scene])) for m in METRICS}
         table[method]["num_scenes"] = len(present)
         curves[method] = {m: [float(np.mean([np.mean(d[lam][m]) for d in per_scene])) for lam in lams] for m in METRICS}
 
-    print(f"lambda={args.lam}, source={args.source}")
+    print(f"lambda={args.lam}, source={args.source}, ssim={args.ssim}, scenes={len(args.scenes)}")
     print(f"{'method':24s} {'RMSE':>7s} {'PSNR':>7s} {'SSIM':>7s}  scenes")
     for method, row in table.items():
         print(f"{method:24s} {row['rmse']:7.3f} {row['psnr']:7.2f} {row['ssim']:7.3f}  {int(row['num_scenes'])}")
