@@ -12,8 +12,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-# TODO: set to the final Hugging Face repository before release.
-REPO_ID = "yuzu0308/progressive-permutation-alignment"
+REPO_ID = "yuuxu/progressive-permutation-alignment"
 SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums"]
 FILES = ["model_a.pth", "model_b.pth", "ref_perms_cpu.pt"]
 
