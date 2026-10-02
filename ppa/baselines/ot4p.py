@@ -1,10 +1,22 @@
 """OT4P baselines (Guo et al., NeurIPS 2024): gradient descent over an orthogonal relaxation.
 
-Adapted from https://github.com/YamingGuo98/OT4P (MIT License, Copyright (c) 2024 Yaming Guo).
-The temperature map ``orth2perm`` is OT4P's original one (``variant="original"``, default): the
-matrix power uses an eigendecomposition and there is no anchoring to the identity. The variant used
-by our method (:func:`ppa.spectral.sharpen`, SVD power + identity anchoring) is available as
-``variant="modified"``; some runs of the research code used it for the baselines as well.
+The :class:`OT4P` module and its helpers (``matrix_power``, ``matching``, ``create_perm_matrix``,
+``generate_random_orthogonal_matrix``) follow the official implementation
+https://github.com/YamingGuo98/OT4P (commit 99915004; MIT License, Copyright (c) 2024 Yaming Guo) line by
+line, including its error handling: nothing is caught, and the matrix power prints
+"Imaginary part is too large" like the original. Outputs, gradients and optimiser steps are bit-identical
+to the official code (``tests/test_baselines.py`` checks the map against fixed values). Differences:
+
+* the batched linear assignment uses SciPy instead of ``torch_linear_assignment`` (same solutions);
+* ``power_device`` optionally computes the eigendecomposition power on another device. The default
+  (``None``) uses the input's device as the official code does. On an RTX 5090 with CUDA 11.8 wheels,
+  ``x ** 0.5`` of a complex CUDA tensor is dispatched to a JIT-compiled kernel that fails to compile, so
+  the official code raises at ``tau = 0.5`` there; pass ``power_device="cpu"`` in that case;
+* ``update_base`` raises a ``ValueError`` for parameters that are not 2-D (the official code fails with
+  an ``UnboundLocalError``).
+
+``variant="modified"`` replaces ``orth2perm`` by the map of our method (:func:`ppa.spectral.sharpen`,
+SVD power + identity anchoring); it is only kept to compare with the research code.
 
 * :func:`ot4p` ("OT4P"): all groups are optimised jointly with AdamW.
 * :func:`progressive_ot4p` ("Progressive OT4P"): groups are optimised one at a time (sorted
@@ -23,67 +35,136 @@ from typing import Callable, Dict, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+from scipy.optimize import linear_sum_assignment
 
 from ppa.align import squared_distance
 from ppa.ops import Params, apply_matrices, perm_size
 from ppa.spec import PermutationSpec
-from ppa.spectral import _hungarian_anchor, project_to_permutation, sharpen
+from ppa.spectral import project_to_permutation, sharpen
 
 VARIANTS = ("original", "modified")
 
 
-def eig_power(matrix: torch.Tensor, s: float) -> torch.Tensor:
-    """OT4P's matrix power ``V diag(L^s) V^{-1}`` via an eigendecomposition (real part returned).
+# ---------------------------------------------------------------------------------------------------------
+# Official OT4P helpers (src/utils.py)
+# ---------------------------------------------------------------------------------------------------------
 
-    Computed on the CPU: complex powers are JIT-compiled by PyTorch on CUDA, which fails on GPUs newer
-    than the installed CUDA toolkit (e.g. an RTX 5090 with CUDA 11.8 wheels).
+
+def batch_linear_assignment(cost: torch.Tensor) -> torch.Tensor:
+    """Row-wise minimum-cost assignment of a ``(batch, n, n)`` cost tensor (``torch_linear_assignment`` API)."""
+    cols = [torch.as_tensor(linear_sum_assignment(c)[1], dtype=torch.long) for c in cost.detach().cpu().numpy()]
+    return torch.stack(cols).to(cost.device)
+
+
+def matrix_power(matrix: torch.Tensor, s: float, power_device: Optional[str] = None) -> torch.Tensor:
+    """Computes the power of a square matrix using eigen decomposition (official ``matrix_power``).
+
+    Args:
+        matrix: Batch x N x N.
+        s: Scalar power.
+        power_device: Device for the computation (``None``: the input's device, as in the official code).
+
+    Returns:
+        Batch x N x N matrix raised to the power ``s`` (real part), on the input's device.
     """
-    eigvals, eigvecs = torch.linalg.eig(matrix.detach().cpu())
-    out = torch.real(eigvecs @ torch.diag_embed(eigvals**s) @ torch.linalg.inv(eigvecs))
-    return out.contiguous().to(matrix.device)
-
-
-def orth2perm(orth: torch.Tensor, tau: float) -> torch.Tensor:
-    """OT4P's original ``orth2perm`` for one ``(n, n)`` orthogonal matrix.
-
-    ``P_hat = Hungarian(O)`` and the result is ``P_hat (P_hat^T O)^tau`` with an eigendecomposition
-    power, with OT4P's determinant sign adjustment of the last column.
-    """
-    o = orth.unsqueeze(0)
-    p_hat = _hungarian_anchor(o)
-    adjust = (-2 * (torch.linalg.det(p_hat) < 0).float() + 1).unsqueeze(1)
-    p_hat[:, :, -1].mul_(adjust)
-    out = p_hat @ eig_power(p_hat.transpose(-2, -1) @ o, tau)
-    out[:, :, -1].mul_(adjust)
-    return out.squeeze(0)
-
-
-def random_block_rotation(batch: int, n: int) -> torch.Tensor:
-    """OT4P's random initial base: 2x2 rotations with angles in ``[pi/8, 3pi/8]`` (uses NumPy's RNG)."""
-    n_even = n - 1 if n % 2 != 0 else n
-    angles = np.random.uniform(np.pi / 8, 3 * np.pi / 8, (batch, n_even // 2))
-    out = torch.zeros((batch, n, n), dtype=torch.float32)
-    for b in range(batch):
-        q = torch.eye(n, dtype=torch.float32)
-        for i in range(0, n_even, 2):
-            c, s = np.cos(angles[b, i // 2]), np.sin(angles[b, i // 2])
-            q[i, i], q[i, i + 1], q[i + 1, i], q[i + 1, i + 1] = c, -s, s, c
-        if n % 2 != 0:
-            q[-1, -1] = 1
-        out[b] = q
+    m = matrix if power_device is None else matrix.to(power_device)
+    L, V = torch.linalg.eig(m)  # noqa: N806 (official names)
+    Lambda_s = torch.diag_embed(L**s)  # noqa: N806
+    result = V @ Lambda_s @ torch.linalg.inv(V)
+    if torch.imag(result).abs().max() > 1e-5:
+        print("Imaginary part is too large")
+    out = torch.real(result)
+    if out.device != matrix.device:
+        out = out.contiguous()
+        if matrix.is_cuda:
+            # Page-locked copy: the pageable host-to-device path intermittently failed with
+            # "CUDA error: unknown error" for 4096 x 4096 matrices on an RTX 5090 (Windows, CUDA 11.8 wheels).
+            out = out.pin_memory()
+        out = out.to(matrix.device)
     return out
 
 
-class OT4P(nn.Module):
-    """Orthogonal relaxation ``R^{n x n} -> O(n)`` concentrated near permutations as ``tau -> 0``."""
+def create_perm_matrix(indx: torch.Tensor) -> torch.Tensor:
+    """Creates a Batch x N x N permutation matrix from Batch x N indices (official ``create_perm_matrix``)."""
+    device = indx.device
+    batch_size, size = indx.shape
+    perm_matrix = torch.zeros(batch_size, size, size, device=device, dtype=torch.float)
+    rows = torch.arange(size, device=device).repeat(batch_size, 1)
+    perm_matrix[torch.arange(batch_size, device=device).unsqueeze(1), rows, indx] = 1
+    return perm_matrix
 
-    def __init__(self, size: int, batch: int = 1, variant: str = "original") -> None:
-        """Create the module with a random base rotation.
+
+def matching(
+    orth_matrix: torch.Tensor, constraint: Optional[torch.Tensor] = None, maximize: bool = True
+) -> torch.Tensor:
+    """Solves the linear assignment problem using the provided orthogonal matrix (official ``matching``).
+
+    Args:
+        orth_matrix: Batch x N x N orthogonal matrix.
+        constraint: Optional Batch x N x N constraint matrix.
+        maximize: Whether to maximize or minimize the assignment.
+
+    Returns:
+        Batch x N x N permutation matrix.
+    """
+    matrix = orth_matrix.clone()
+    matrix -= matrix.min()
+    if torch.is_tensor(constraint):
+        matrix *= constraint
+    if maximize:
+        matrix = matrix.max() - matrix
+        col_idxs = batch_linear_assignment(matrix)
+    else:
+        col_idxs = batch_linear_assignment(matrix)
+    return create_perm_matrix(col_idxs)
+
+
+def generate_random_orthogonal_matrix(batch_size: int, n: int) -> torch.Tensor:
+    """Generates a batch of random orthogonal matrices (official, uses NumPy's global RNG).
+
+    Args:
+        batch_size: Number of matrices to generate.
+        n: Size of each orthogonal matrix.
+
+    Returns:
+        Batch x N x N block-rotation matrices with angles in ``[pi/8, 3 pi/8]``.
+    """
+    n_minus_one = n - 1 if n % 2 != 0 else n
+    theta_min = np.pi / 8
+    theta_max = 3 * np.pi / 8
+    angles = np.random.uniform(theta_min, theta_max, (batch_size, n_minus_one // 2))
+    Q_batch = torch.zeros((batch_size, n, n), dtype=torch.float32)  # noqa: N806 (official names)
+    for b in range(batch_size):
+        Q = torch.eye(n, dtype=torch.float32)  # noqa: N806
+        for i in range(0, n_minus_one, 2):
+            theta = angles[b, i // 2]
+            cos_theta, sin_theta = np.cos(theta), np.sin(theta)
+            Q[i, i] = cos_theta
+            Q[i, i + 1] = -sin_theta
+            Q[i + 1, i] = sin_theta
+            Q[i + 1, i + 1] = cos_theta
+        if n % 2 != 0:
+            Q[-1, -1] = 1
+        Q_batch[b] = Q
+    return Q_batch
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Official OT4P module (src/ot4p.py)
+# ---------------------------------------------------------------------------------------------------------
+
+
+class OT4P(nn.Module):
+    """OT4P: maps unconstrained matrices to the orthogonal group, concentrated near permutations as tau -> 0."""
+
+    def __init__(self, size: int, batch: int = 1, variant: str = "original", power_device: Optional[str] = None):
+        """Initialize the OT4P model.
 
         Args:
-            size: Matrix size ``n``.
-            batch: Batch size.
-            variant: ``original`` (OT4P's eigendecomposition map) or ``modified`` (:func:`sharpen`).
+            size: The size of the orthogonal matrix.
+            batch: The batch size.
+            variant: ``original`` (official ``orth2perm``) or ``modified`` (map of our method, research code only).
+            power_device: Device for the eigendecomposition power (``None``: same as the input).
 
         Raises:
             ValueError: For an unknown variant.
@@ -91,33 +172,66 @@ class OT4P(nn.Module):
         super().__init__()
         if variant not in VARIANTS:
             raise ValueError(f"variant must be one of {VARIANTS}, got {variant}")
-        self.register_buffer("base", random_block_rotation(batch, size))
-        self.target_map = orth2perm if variant == "original" else sharpen
+        self.register_buffer("base", generate_random_orthogonal_matrix(batch, size))
+        self.register_buffer("constraint", None)
+        self.variant = variant
+        self.power_device = power_device
 
-    @staticmethod
-    def ver2orth(matrix: torch.Tensor) -> torch.Tensor:
-        """Map an unconstrained matrix to ``SO(n)`` via the exponential of its skew-symmetric part."""
+    def ver2orth(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Map the vector (Batch x N x N) to the orthogonal matrix."""
         skew = matrix.triu(1)
         return torch.matrix_exp(skew - skew.transpose(-2, -1))
 
-    def forward(self, matrix: torch.Tensor, tau: float = 1.0) -> torch.Tensor:
-        """Relaxed permutation for parameters ``matrix`` (``(n, n)`` or ``(batch, n, n)``)."""
-        squeeze = matrix.dim() == 2
-        if squeeze:
-            matrix = matrix.unsqueeze(0)
-        orth = self.base @ self.ver2orth(matrix)
-        with torch.no_grad():
-            target = torch.stack([self.target_map(o, tau) for o in orth])
-            trans = target @ orth.transpose(-2, -1)
-        out = trans @ orth
-        return out.squeeze(0) if squeeze else out
+    def orth2perm(self, orth_matrix: torch.Tensor, tau: float = 1.0) -> torch.Tensor:
+        """Moves the Batch x N x N orthogonal matrix toward the closest permutation matrix."""
+        if self.variant == "modified":
+            return torch.stack([sharpen(o, tau) for o in orth_matrix])
+        perm_matrix = matching(orth_matrix, self.constraint)
 
-    @torch.no_grad()
+        dets = torch.linalg.det(perm_matrix)
+        adjust = (-2 * (dets < 0).float() + 1).unsqueeze(1)
+        perm_matrix[:, :, -1].mul_(adjust)
+
+        matrix_powered = matrix_power(perm_matrix.transpose(-2, -1) @ orth_matrix, tau, self.power_device)
+        new_orth_matrix = perm_matrix @ matrix_powered
+
+        new_orth_matrix[:, :, -1].mul_(adjust)
+        return new_orth_matrix
+
+    def get_trans_matrix(self, orth_matrix: torch.Tensor, tau: float = 1.0) -> torch.Tensor:
+        """Compute the equivalent transformation of the mapping ``orth2perm``."""
+        with torch.no_grad():
+            perm_matrix = self.orth2perm(orth_matrix, tau)
+            trans_matrix = perm_matrix @ orth_matrix.transpose(-2, -1)
+        return trans_matrix
+
+    def forward(self, matrix: torch.Tensor, tau: float = 1.0) -> torch.Tensor:
+        """Map an unconstrained (Batch x) N x N tensor to an orthogonal matrix close to a permutation matrix."""
+        is_2d = matrix.dim() == 2
+        if is_2d:
+            matrix = matrix.unsqueeze(0)
+
+        orth_matrix = self.base @ self.ver2orth(matrix)
+        trans_matrix = self.get_trans_matrix(orth_matrix, tau)
+        perm_matrix = trans_matrix @ orth_matrix
+
+        if is_2d:
+            perm_matrix = perm_matrix.squeeze(0)
+        return perm_matrix
+
     def update_base(self, param: torch.Tensor) -> None:
-        """Absorb the current parameters into the base and reset them to zero."""
-        matrix = param.unsqueeze(0) if param.dim() == 2 else param
-        self.base.copy_(self.base @ self.ver2orth(matrix))
-        param.set_(torch.zeros_like(param))
+        """Update the base orthogonal matrix with an N x N parameter and reset the parameter to zero.
+
+        Raises:
+            ValueError: If ``param`` is not 2-D (the official code fails with an ``UnboundLocalError``).
+        """
+        with torch.no_grad():
+            if param.dim() != 2:
+                raise ValueError(f"update_base expects an N x N parameter, got shape {tuple(param.shape)}")
+            matrix = param.unsqueeze(0)
+            orth_matrix = self.base @ self.ver2orth(matrix)
+            self.base.copy_(orth_matrix)
+            param.set_(torch.zeros_like(param))
 
 
 @dataclass
@@ -140,6 +254,7 @@ def _setup(
     seed: Optional[int],
     init_scale: float = 0.1,
     variant: str = "original",
+    power_device: Optional[str] = None,
 ):
     if seed is not None:
         np.random.seed(seed)
@@ -152,7 +267,7 @@ def _setup(
             continue
         n = perm_size(spec, a, pid)
         sizes[pid] = n
-        modules[pid] = OT4P(n, variant=variant).to(device)
+        modules[pid] = OT4P(n, variant=variant, power_device=power_device).to(device)
         init = torch.randn(n, n, device=device)
         weights[pid] = nn.Parameter(init if init_scale == 1.0 else init * init_scale)
     return modules, weights, sizes, sorted(sizes)
@@ -191,6 +306,7 @@ def ot4p(
     timeout: Optional[float] = None,
     init_scale: float = 0.1,
     variant: str = "original",
+    power_device: Optional[str] = None,
 ) -> OT4PResult:
     """OT4P: joint AdamW over all groups at a fixed temperature, with early stopping.
 
@@ -209,13 +325,14 @@ def ot4p(
         timeout: Stop optimising after this many seconds (paper: 3600 for Table 1).
         init_scale: Std of the random initial parameters (paper runs: 0.1 for NeRF, 1.0 for MLP5/CNNs).
         variant: ``original`` OT4P map or the ``modified`` one of our method.
+        power_device: Device of the eigendecomposition power (``None``: same as ``device``).
 
     Returns:
         The result.
     """
     a = {k: v.to(device) for k, v in params_a.items() if k in spec.axes_to_perm}
     b = {k: v.to(device) for k, v in params_b.items() if k in spec.axes_to_perm}
-    modules, weights, _, order = _setup(spec, a, device, seed, init_scale, variant)
+    modules, weights, _, order = _setup(spec, a, device, seed, init_scale, variant, power_device)
     optimizer = torch.optim.AdamW(weights.values(), lr=lr)
     best = float("inf")
     stall = 0
@@ -256,6 +373,7 @@ def progressive_ot4p(
     log: Optional[Callable[[str], None]] = None,
     timeout: Optional[float] = None,
     variant: str = "original",
+    power_device: Optional[str] = None,
 ) -> OT4PResult:
     """Progressive OT4P: layer-by-layer AdamW at a fixed temperature.
 
@@ -273,13 +391,14 @@ def progressive_ot4p(
         log: Optional logging callback.
         timeout: Stop optimising after this many seconds (paper: 3600 for Table 1).
         variant: ``original`` OT4P map or the ``modified`` one of our method.
+        power_device: Device of the eigendecomposition power (``None``: same as ``device``).
 
     Returns:
         The result.
     """
     a = {k: v.to(device) for k, v in params_a.items() if k in spec.axes_to_perm}
     b = {k: v.to(device) for k, v in params_b.items() if k in spec.axes_to_perm}
-    modules, weights, sizes, order = _setup(spec, a, device, seed, variant=variant)
+    modules, weights, sizes, order = _setup(spec, a, device, seed, variant=variant, power_device=power_device)
     current: Dict[str, torch.Tensor] = {pid: torch.eye(sizes[pid], device=device) for pid in order}
     start = time.perf_counter()
     for pid in order:

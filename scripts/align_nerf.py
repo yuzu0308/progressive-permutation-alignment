@@ -71,7 +71,7 @@ def run(method: str, full_a: Params, full_b: Params, args: argparse.Namespace) -
 
         prog, tau = method.startswith("prog-"), float(method.rsplit("-", 1)[1])
         fn = progressive_ot4p if prog else ot4p
-        r = fn(spec, a, b, tau=tau, seed=args.seed, device=args.device, log=log)
+        r = fn(spec, a, b, tau=tau, seed=args.seed, device=args.device, log=log, power_device=args.ot4p_power_device)
         # As in the paper, model B is transformed by the final near-permutation matrices themselves.
         aligned = {k: v.cpu() for k, v in apply_matrices(spec, full_b, r.matrices, args.device).items()}
         return aligned, {"tau": tau, "seed": args.seed}
@@ -99,6 +99,7 @@ def main() -> None:
     parser.add_argument("--method", choices=METHODS, default="ours")
     parser.add_argument("--data", type=Path, default=None, help="scene directory (AM / STE only)")
     parser.add_argument("--seed", type=int, default=0, help="seed of the stochastic baselines")
+    parser.add_argument("--ot4p-power-device", default=None, help="see shuffle_recovery.py --help")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()

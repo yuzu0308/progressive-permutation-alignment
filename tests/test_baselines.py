@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Dict
 
+import numpy as np
 import pytest
 import torch
 from conftest import random_perms
@@ -44,17 +45,70 @@ def test_ot4p_is_repeatable_with_seed(skip_mlp: Dict[str, object], fn, variant: 
 
 def test_ot4p_original_map_endpoints() -> None:
     """OT4P's orth2perm returns the input at tau = 1 and the Hungarian anchor at tau = 0 (det > 0 case)."""
-    from ppa.baselines.ot4p import orth2perm
+    from ppa.baselines.ot4p import OT4P
     from ppa.spectral import hungarian
 
     torch.manual_seed(0)
     q, _ = torch.linalg.qr(torch.randn(8, 8))
-    p0 = orth2perm(q, 0.0)
+    module = OT4P(8)
+    p0 = module.orth2perm(q.unsqueeze(0), 0.0)[0]
     assert p0.abs().argmax(1).tolist() == hungarian(q).tolist()
     sign = torch.sign(torch.linalg.det(torch.eye(8)[hungarian(q)]))
     expected = q.clone()
     expected[:, -1] *= sign
-    torch.testing.assert_close(orth2perm(q, 1.0), expected, atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(module.orth2perm(q.unsqueeze(0), 1.0)[0], expected, atol=1e-4, rtol=1e-4)
+
+
+# Output of the official implementation (github.com/YamingGuo98/OT4P, commit 99915004) for
+# np.random.seed(0); torch.manual_seed(0); OT4P(4)(W, tau) on CPU.
+OFFICIAL_W = [[0.3, -1.2, 0.5, 0.8], [1.1, 0.2, -0.7, 0.4], [-0.6, 0.9, 0.1, -1.3], [0.2, -0.4, 1.5, 0.6]]
+OFFICIAL_BASE = [
+    [0.6794847, -0.7336896, 0.0, 0.0],
+    [0.7336896, 0.6794847, 0.0, 0.0],
+    [0.0, 0.0, 0.5780923, -0.8159714],
+    [0.0, 0.0, 0.8159714, 0.5780923],
+]
+OFFICIAL_OUT = {
+    0.3: [
+        [-0.0240355, -0.2172269, 0.9358802, -0.2763402],
+        [0.2098972, 0.008196, 0.283568, 0.9356628],
+        [0.9763373, -0.0531844, -0.047548, -0.2041465],
+        [0.046155, 0.9746373, 0.2036094, -0.0806004],
+    ],
+    0.5: [
+        [-0.0775384, -0.3537061, 0.8264081, -0.4311966],
+        [0.3377643, -0.0276537, 0.4507442, 0.82582],
+        [0.9358137, -0.0834666, -0.1160402, -0.3222116],
+        [0.0644574, 0.9312152, 0.3168812, -0.1681409],
+    ],
+}
+
+
+@pytest.mark.parametrize("tau", [0.3, 0.5])
+def test_ot4p_matches_official_outputs(tau: float) -> None:
+    from ppa.baselines.ot4p import OT4P
+
+    np.random.seed(0)
+    torch.manual_seed(0)
+    module = OT4P(4)
+    torch.testing.assert_close(module.base[0], torch.tensor(OFFICIAL_BASE), atol=1e-6, rtol=0)
+    out = module(torch.tensor(OFFICIAL_W), tau=tau)
+    torch.testing.assert_close(out, torch.tensor(OFFICIAL_OUT[tau]), atol=1e-6, rtol=0)
+
+
+def test_ot4p_does_not_swallow_errors() -> None:
+    """A failing matrix power propagates (the research code used to replace it by the identity)."""
+    from ppa.baselines.ot4p import matrix_power
+
+    with pytest.raises(RuntimeError):
+        matrix_power(torch.full((1, 3, 3), float("nan")), 0.5)
+
+
+def test_update_base_rejects_batched_parameters() -> None:
+    from ppa.baselines.ot4p import OT4P
+
+    with pytest.raises(ValueError):
+        OT4P(3).update_base(torch.zeros(2, 3, 3))
 
 
 def test_apply_matrices_conv_matches_index_permutation() -> None:

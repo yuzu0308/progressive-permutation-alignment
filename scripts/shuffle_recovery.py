@@ -69,6 +69,7 @@ def run_method(
     b: Params,
     device: str,
     dtype: Optional[torch.dtype] = None,
+    power_device: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
     """Recover the permutations of ``b`` with ``method`` (``dtype`` applies to the proposed method)."""
     cfg = CONFIG[domain]
@@ -80,7 +81,8 @@ def run_method(
         return progressive_weight_matching(spec, a, b)
     kind, tau = method.rsplit("-", 1)
     fn: Callable = progressive_ot4p if kind == "prog-ot4p" else ot4p
-    return fn(spec, a, b, tau=float(tau), seed=0, device=device, timeout=TIMEOUT, **cfg[kind]).perms
+    kw = dict(cfg[kind], power_device=power_device)
+    return fn(spec, a, b, tau=float(tau), seed=0, device=device, timeout=TIMEOUT, **kw).perms
 
 
 def cases(
@@ -116,6 +118,12 @@ def main() -> None:
     parser.add_argument("--pretrained", action="store_true", help="ImageNet weights for VGG11 / ResNet18")
     parser.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
     parser.add_argument(
+        "--ot4p-power-device",
+        default=None,
+        help="device of the OT4P eigendecomposition power (default: as the official code, the input device; "
+        "use cpu on GPUs that cannot JIT-compile complex kernels, e.g. RTX 50xx with CUDA 11.8 wheels)",
+    )
+    parser.add_argument(
         "--dtype", choices=["float32", "float64"], default="float32", help="precision of the proposed method"
     )
     args = parser.parse_args()
@@ -136,7 +144,9 @@ def main() -> None:
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
                 t0 = time.perf_counter()
-                perms = run_method(method, domain, spec, a, b, args.device, getattr(torch, args.dtype))
+                perms = run_method(
+                    method, domain, spec, a, b, args.device, getattr(torch, args.dtype), args.ot4p_power_device
+                )
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
                 elapsed = time.perf_counter() - t0
