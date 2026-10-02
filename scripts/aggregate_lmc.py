@@ -23,7 +23,9 @@ SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums
 METRICS = ("rmse", "psnr", "ssim")
 
 
-def load(results: Path, scene: str, method: str, source: str, ssim: str) -> Dict[str, Dict[str, List[float]]]:
+def load(
+    results: Path, scene: str, method: str, source: str, ssim: str, lmc_dir: str = "lmc"
+) -> Dict[str, Dict[str, List[float]]]:
     """Per-lambda metric lists of one scene/method.
 
     Args:
@@ -32,6 +34,7 @@ def load(results: Path, scene: str, method: str, source: str, ssim: str) -> Dict
         method: Method name.
         source: ``float`` or ``png`` (images the PSNR / RMSE are computed on).
         ssim: ``torchmetrics`` (computed on ``source``) or ``skimage`` (always on the PNGs).
+        lmc_dir: Sub-directory holding ``lmc.json``.
 
     Returns:
         ``{lambda: {"psnr": [...], "rmse": [...], "ssim": [...]}}``.
@@ -39,7 +42,7 @@ def load(results: Path, scene: str, method: str, source: str, ssim: str) -> Dict
     Raises:
         KeyError: If ``skimage`` SSIM was requested but not recorded (run ``add_skimage_ssim.py``).
     """
-    data = json.loads((results / scene / method / "lmc" / "lmc.json").read_text())
+    data = json.loads((results / scene / method / lmc_dir / "lmc.json").read_text())
     metrics = {lam: dict(m) for lam, m in data[f"metrics_{source}"].items()}
     if ssim == "skimage":
         for lam, m in metrics.items():
@@ -66,6 +69,7 @@ def main() -> None:
         help="SSIM implementation; the paper used skimage for the Naive/WM/Prog. WM rows of supp. Tables 2-3",
     )
     parser.add_argument("--lam", default="0.5")
+    parser.add_argument("--lmc-dir", default="lmc", help="sub-directory holding lmc.json")
     parser.add_argument("--json", type=Path, default=None, help="also write the table as JSON")
     parser.add_argument("--plot", type=Path, default=None, help="directory for metric-vs-lambda plots")
     args = parser.parse_args()
@@ -74,13 +78,13 @@ def main() -> None:
     curves: Dict[str, Dict[str, List[float]]] = {}
     lams: List[str] = []
     for method in args.methods:
-        present = [s for s in args.scenes if (args.results / s / method / "lmc" / "lmc.json").exists()]
+        present = [s for s in args.scenes if (args.results / s / method / args.lmc_dir / "lmc.json").exists()]
         if len(present) != len(args.scenes):
             missing = sorted(set(args.scenes) - set(present))
             print(f"[warn] {method}: missing scenes {missing}; averaging over {len(present)}", file=sys.stderr)
         if not present:
             continue
-        per_scene = [load(args.results, s, method, args.source, args.ssim) for s in present]
+        per_scene = [load(args.results, s, method, args.source, args.ssim, args.lmc_dir) for s in present]
         lams = sorted(per_scene[0], key=float)
         table[method] = {m: float(np.mean([np.mean(d[args.lam][m]) for d in per_scene])) for m in METRICS}
         table[method]["num_scenes"] = len(present)

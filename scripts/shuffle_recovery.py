@@ -18,7 +18,7 @@ import math
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -62,12 +62,18 @@ def precision(found: Dict[str, torch.Tensor], gt: Dict[str, torch.Tensor]) -> fl
 
 
 def run_method(
-    method: str, domain: str, spec: PermutationSpec, a: Params, b: Params, device: str
+    method: str,
+    domain: str,
+    spec: PermutationSpec,
+    a: Params,
+    b: Params,
+    device: str,
+    dtype: Optional[torch.dtype] = None,
 ) -> Dict[str, torch.Tensor]:
-    """Recover the permutations of ``b`` with ``method``."""
+    """Recover the permutations of ``b`` with ``method`` (``dtype`` applies to the proposed method)."""
     cfg = CONFIG[domain]
     if method in ("ours", "ours-no-ref"):
-        return align(spec, a, b, refine=method == "ours", tol=cfg["tol"], device=device).perms
+        return align(spec, a, b, refine=method == "ours", tol=cfg["tol"], device=device, dtype=dtype).perms
     if method == "wm":
         return weight_matching(spec, a, b)
     if method == "prog-wm":
@@ -109,6 +115,9 @@ def main() -> None:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--pretrained", action="store_true", help="ImageNet weights for VGG11 / ResNet18")
     parser.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
+    parser.add_argument(
+        "--dtype", choices=["float32", "float64"], default="float32", help="precision of the proposed method"
+    )
     args = parser.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -127,7 +136,7 @@ def main() -> None:
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
                 t0 = time.perf_counter()
-                perms = run_method(method, domain, spec, a, b, args.device)
+                perms = run_method(method, domain, spec, a, b, args.device, getattr(torch, args.dtype))
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
                 elapsed = time.perf_counter() - t0
