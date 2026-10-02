@@ -40,7 +40,7 @@ def eig_power(matrix: torch.Tensor, s: float) -> torch.Tensor:
     """
     eigvals, eigvecs = torch.linalg.eig(matrix.detach().cpu())
     out = torch.real(eigvecs @ torch.diag_embed(eigvals**s) @ torch.linalg.inv(eigvecs))
-    return out.to(matrix.device)
+    return out.contiguous().to(matrix.device)
 
 
 def orth2perm(orth: torch.Tensor, tau: float) -> torch.Tensor:

@@ -100,7 +100,8 @@ def spectral_alignment(
     b = {k: v.to(device) for k, v in params_b.items()}
 
     sizes = {pid: perm_size(spec, a, pid) for pid, axes in spec.perm_to_axes.items() if any(n in a for n, _ in axes)}
-    matrices = {pid: torch.eye(n, device=device) for pid, n in sizes.items()}
+    dtype = next(iter(a.values())).dtype
+    matrices = {pid: torch.eye(n, device=device, dtype=dtype) for pid, n in sizes.items()}
     visit = list(order) if order is not None else sorted(sizes)
 
     best = squared_distance(a, apply_matrices(spec, b, matrices, device))
@@ -110,7 +111,7 @@ def spectral_alignment(
         for sweep in range(max_sweeps):
             for pid in visit:
                 others = dict(matrices)
-                others[pid] = torch.eye(sizes[pid], device=device)
+                others[pid] = torch.eye(sizes[pid], device=device, dtype=dtype)
                 b_partial = apply_matrices(spec, b, others, device)
                 corr = correlation_matrix(spec, a, b_partial, pid)
                 matrices[pid] = sharpen(corr, tau, use_svd=use_svd)
@@ -207,6 +208,7 @@ def align(
     order: Optional[Sequence[str]] = None,
     device: str = "cpu",
     log: Optional[Callable[[str], None]] = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> AlignmentResult:
     """Align ``params_b`` to ``params_a`` (the proposed method, "Ours").
 
@@ -223,12 +225,15 @@ def align(
         order: Stage-1 layer order (default ``sorted`` permutation ids).
         device: Device for stage 1 (stage 2 always runs on CPU).
         log: Optional logging callback.
+        dtype: Compute in this precision (default: that of the parameters). ``torch.float64`` separates
+            units that differ only by ~1e-12, e.g. the near-zero ("dead") filters of a pretrained ResNet18,
+            which float32 cannot tell apart.
 
     Returns:
         The alignment result.
     """
-    a = {k: v for k, v in params_a.items() if k in spec.axes_to_perm}
-    b = {k: v for k, v in params_b.items() if k in spec.axes_to_perm}
+    a = {k: v if dtype is None else v.to(dtype) for k, v in params_a.items() if k in spec.axes_to_perm}
+    b = {k: v if dtype is None else v.to(dtype) for k, v in params_b.items() if k in spec.axes_to_perm}
 
     _sync()
     t0 = time.perf_counter()

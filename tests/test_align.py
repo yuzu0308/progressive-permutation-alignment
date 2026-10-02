@@ -81,3 +81,18 @@ def test_matches_original_research_code(scene: str) -> None:
         perms = align(spec, a, b, refine=refine).perms
         for pid, expected in ref[key].items():
             assert torch.equal(perms[pid], expected), f"{scene} {key} {pid}"
+
+
+def test_float64_separates_near_duplicate_units(skip_mlp: Dict[str, object]) -> None:
+    """Units that differ only by ~1e-9 are indistinguishable in float32 but recovered in float64."""
+    spec = permutation_spec_from_axes_to_perm(skip_mlp["axes"])  # type: ignore[arg-type]
+    params = {k: v.clone().double() for k, v in skip_mlp["params"].items()}  # type: ignore[union-attr]
+    for name in ("l0.weight", "l0.bias", "l1.weight"):
+        params[name][[2, 5]] = 1e-9 * torch.arange(1, 3, dtype=torch.float64).reshape(
+            2, *([1] * (params[name].dim() - 1))
+        )
+    params["l1.weight"][:, [2, 5]] = 1e-9 * torch.tensor([[1.0, 2.0]], dtype=torch.float64)
+    w = skip_mlp["width"]
+    shuffled = apply_permutation(spec, params, random_perms({"P_0": w, "P_1": w, "P_2": w}, seed=6))  # type: ignore[arg-type]
+    result = align(spec, params, shuffled, dtype=torch.float64)
+    assert squared_distance(params, apply_permutation(spec, shuffled, result.perms)) == 0.0
