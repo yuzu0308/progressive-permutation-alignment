@@ -3,7 +3,7 @@
 **ACCV 2026** · Yuta Horioka\*, Naoya Chiba\*, Yuki Uranishi (The University of Osaka) · \*equal contribution
 
 [Project page](https://yuzu0308.github.io/progressive-permutation-alignment/) ·
-Paper (TODO) · Supplementary (TODO) · Weights (TODO: Hugging Face)
+Paper (TODO) · Supplementary (TODO) · [Weights](https://huggingface.co/yuuxu/progressive-permutation-alignment)
 
 <p align="center"><img src="docs/static/img/overview.png" width="85%" alt="Method overview"></p>
 
@@ -57,7 +57,8 @@ For other architectures, describe which weight axes share a permutation with a `
 * NeRF Synthetic: download [`nerf_synthetic`](https://drive.google.com/drive/folders/128yBriW1IG_3NJ5Rp7APSTZsJqdJdfc1)
   and place the eight scenes under `data/nerf_synthetic/`.
 * Trained models: the 16 vanilla NeRFs used in the paper (8 scenes × seeds 42/100, 1M iterations) are
-  available on Hugging Face (TODO). Put them under `weights/<scene>/model_{a,b}.pth`. The files
+  available on [Hugging Face](https://huggingface.co/yuuxu/progressive-permutation-alignment) (68 MB). `python scripts/download_weights.py` (needs
+  `pip install huggingface_hub`) puts them under `weights/<scene>/model_{a,b}.pth`. The files
   `weights/<scene>/ref_perms_cpu.pt` hold the permutations produced by the original research code and are
   used by the regression test.
 * To train them yourself:
