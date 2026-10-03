@@ -7,7 +7,8 @@ and alignment time, as mean and standard deviation over seeds (MLP5 / VGG11 / Re
 scenes (NeRF, seed 42 per scene).
 
 Example:
-    python scripts/shuffle_recovery.py --models mlp5 resnet18 nerf --out results/shuffle
+    python scripts/shuffle_recovery.py --models mlp5 nerf
+    python scripts/shuffle_recovery.py --models vgg11 resnet18 --pretrained --out results/shuffle_pretrained
 """
 
 from __future__ import annotations

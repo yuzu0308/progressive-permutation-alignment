@@ -44,7 +44,6 @@ def main() -> None:
     parser.add_argument("--methods", nargs="+", default=TABLE3 + SUPP)
     parser.add_argument("--lambdas", type=float, nargs="*", default=None, help="default: 0, 0.1, ..., 1")
     parser.add_argument("--no-png", action="store_true")
-    parser.add_argument("--lmc-dir", default="lmc", help="sub-directory of each result for the LMC evaluation")
     args = parser.parse_args()
 
     py = sys.executable
@@ -57,10 +56,10 @@ def main() -> None:
                        "--method", method, "--out", str(out), "--data", str(args.data_root / scene)]  # fmt: skip
                 print(f"[align] {scene} {method}", flush=True)
                 subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-            if not (out / args.lmc_dir / "lmc.json").exists():
+            if not (out / "lmc" / "lmc.json").exists():
                 cmd = [py, str(ROOT / "scripts/eval_lmc.py"), "--data", str(args.data_root / scene)]
                 cmd += ["--model-a", str(wa), "--model-b", str(out / "model_b_aligned.pth")]
-                cmd += ["--out", str(out / args.lmc_dir)]
+                cmd += ["--out", str(out / "lmc")]
                 if args.lambdas:
                     cmd += ["--lambdas", *map(str, args.lambdas)]
                 if args.no_png:
