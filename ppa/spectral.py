@@ -53,7 +53,7 @@ def _hungarian_anchor(corr: torch.Tensor) -> torch.Tensor:
     m = m.max() - m
     batch, n, _ = m.shape
     cost = m.detach().cpu().numpy()
-    perm = torch.zeros(batch, n, n, device=corr.device, dtype=torch.float)
+    perm = torch.zeros(batch, n, n, device=corr.device, dtype=corr.dtype)
     rows = torch.arange(n, device=corr.device)
     for i in range(batch):
         _, col = linear_sum_assignment(cost[i])
@@ -100,7 +100,7 @@ def sharpen(corr: torch.Tensor, tau: float, use_svd: bool = True) -> torch.Tenso
     p_hat[:, :, -1].mul_(adjust)
     if use_svd:
         powered = svd_power(p_hat.transpose(-2, -1) @ c, tau)
-        powered = tau * powered + (1 - tau) * torch.eye(c.size(-1), device=c.device)
+        powered = tau * powered + (1 - tau) * torch.eye(c.size(-1), device=c.device, dtype=c.dtype)
         out = p_hat @ powered
     else:
         # P_hat [tau P_hat^T C + (1 - tau) I] = tau C + (1 - tau) P_hat, written as in the ablation run.
