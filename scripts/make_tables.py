@@ -37,9 +37,11 @@ ROWS: List[Tuple[str, str]] = [
 ]
 SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums"]
 TIMEOUT = 3600.0
+MARK_TIMEOUTS = True  # set by --no-timeout-marks
 NOTE_PRETRAINED = (
-    ". VGG11 and ResNet18 use ImageNet weights; MLP5 is randomly initialised. $^\\dagger$Single run (seed 42). "
-    "The proposed method is computed in float64 on ResNet18."
+    ". VGG11 and ResNet18 use ImageNet weights; MLP5 is randomly initialised. "
+    "The proposed method is computed in float64 on ResNet18. One VGG11 run of OT4P ($\\tau=0.5$) was computed on "
+    "the CPU because of a GPU error."
 )
 
 
@@ -112,7 +114,7 @@ def quality_table(recs: Records, models: Sequence[Tuple[str, str]], caption: str
         cells = []
         for model, _ in models:
             rs = recs.get(model, method)
-            out = any(r.get("timed_out") for r in rs)
+            out = MARK_TIMEOUTS and any(r.get("timed_out") for r in rs)
             cells.append(cell([math.log1p(r["l1"]) for r in rs], out, std_decimals=3))
             cells.append(cell([100 * r["precision"] for r in rs], out, std_decimals=3))
         lines.append(f"{name} & " + " & ".join(cells) + " \\\\")
@@ -131,7 +133,7 @@ def time_table(recs: Records, models: Sequence[Tuple[str, str]], caption: str, l
         cells = []
         for model, _ in models:
             rs = recs.get(model, method)
-            cells.append(cell([r["time_sec"] for r in rs], any(r.get("timed_out") for r in rs)))
+            cells.append(cell([r["time_sec"] for r in rs], MARK_TIMEOUTS and any(r.get("timed_out") for r in rs)))
         lines.append(f"{name} & " + " & ".join(cells) + " \\\\")
     lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
     return "\n".join(lines)
@@ -178,7 +180,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--results", type=Path, default=Path("results"))
     parser.add_argument("--out", type=Path, default=Path("tables"))
+    parser.add_argument("--no-timeout-marks", action="store_true", help="do not parenthesise timed-out entries")
     args = parser.parse_args()
+    global MARK_TIMEOUTS
+    MARK_TIMEOUTS = not args.no_timeout_marks
     args.out.mkdir(parents=True, exist_ok=True)
 
     shuffle = Records([args.results / "shuffle" / "shuffle_recovery.json"])
