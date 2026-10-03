@@ -93,7 +93,8 @@ def test_ot4p_matches_official_outputs(tau: float) -> None:
     module = OT4P(4)
     torch.testing.assert_close(module.base[0], torch.tensor(OFFICIAL_BASE), atol=1e-6, rtol=0)
     out = module(torch.tensor(OFFICIAL_W), tau=tau)
-    torch.testing.assert_close(out, torch.tensor(OFFICIAL_OUT[tau]), atol=1e-6, rtol=0)
+    # float32 eigendecomposition differs by ~1e-6 across LAPACK builds (CI runners vs. MKL)
+    torch.testing.assert_close(out, torch.tensor(OFFICIAL_OUT[tau]), atol=1e-5, rtol=0)
 
 
 def test_ot4p_does_not_swallow_errors() -> None:
