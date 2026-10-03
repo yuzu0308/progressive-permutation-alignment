@@ -1,13 +1,12 @@
 """Write the shuffle-recovery and timing tables of the paper as LaTeX from the benchmark results.
 
 Tables (written to ``--out``/tables.tex):
-    table1_random      Table 1 with randomly initialised MLP5 / VGG11 / ResNet18 (as in the paper's runs)
-    table1_pretrained  Table 1 with ImageNet weights for VGG11 / ResNet18 (MLP5 stays random)
-    table2             Table 2, NeRF shuffle recovery (8 scenes)
-    supp_table4_*      supp. Table 4, alignment time for the two Table 1 variants
-    supp_table5        supp. Table 5, NeRF alignment time (shuffle / independently trained pairs)
+    table1       Table 1, MLP5 (random initialisation) and VGG11 / ResNet18 (ImageNet weights)
+    table2       Table 2, NeRF shuffle recovery (8 scenes)
+    supp_table4  supp. Table 4, alignment time of the Table 1 runs
+    supp_table5  supp. Table 5, NeRF alignment time (shuffle / independently trained pairs)
 
-Missing entries are written as "--". Entries that hit the time limit are wrapped in parentheses.
+Missing entries are written as "--".
 
 Example:
     python scripts/make_tables.py --results results --out tables
@@ -36,8 +35,6 @@ ROWS: List[Tuple[str, str]] = [
     ("ours", "Proposed (Ours)"),
 ]
 SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums"]
-TIMEOUT = 3600.0
-MARK_TIMEOUTS = True  # set by --no-timeout-marks
 NOTE_PRETRAINED = (
     ". VGG11 and ResNet18 use ImageNet weights; MLP5 is randomly initialised. "
     "The proposed method is computed in float64 on ResNet18. One VGG11 run of OT4P ($\\tau=0.5$) was computed on "
@@ -60,11 +57,10 @@ def stat(values: Sequence[float]) -> Tuple[float, float]:
 
 def cell(
     values: Optional[Sequence[float]],
-    timed_out: bool = False,
     with_std: bool = True,
     std_decimals: Optional[int] = None,
 ) -> str:
-    """``mean ±std`` (or ``--``), parenthesised if a run hit the time limit.
+    """``mean ±std`` (or ``--``).
 
     A single run is written without a standard deviation and marked with a dagger. ``std_decimals`` fixes the
     decimals of the standard deviation (the paper uses 3 for L1 / precision and 4 significant digits for times).
@@ -79,7 +75,7 @@ def cell(
         text = f"{sig(m)} $\\pm${std}"
     else:
         text = sig(m)
-    return f"({text})" if timed_out else text
+    return text
 
 
 class Records:
@@ -114,9 +110,8 @@ def quality_table(recs: Records, models: Sequence[Tuple[str, str]], caption: str
         cells = []
         for model, _ in models:
             rs = recs.get(model, method)
-            out = MARK_TIMEOUTS and any(r.get("timed_out") for r in rs)
-            cells.append(cell([math.log1p(r["l1"]) for r in rs], out, std_decimals=3))
-            cells.append(cell([100 * r["precision"] for r in rs], out, std_decimals=3))
+            cells.append(cell([math.log1p(r["l1"]) for r in rs], std_decimals=3))
+            cells.append(cell([100 * r["precision"] for r in rs], std_decimals=3))
         lines.append(f"{name} & " + " & ".join(cells) + " \\\\")
     lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}"]
     return "\n".join(lines)
@@ -133,7 +128,7 @@ def time_table(recs: Records, models: Sequence[Tuple[str, str]], caption: str, l
         cells = []
         for model, _ in models:
             rs = recs.get(model, method)
-            cells.append(cell([r["time_sec"] for r in rs], MARK_TIMEOUTS and any(r.get("timed_out") for r in rs)))
+            cells.append(cell([r["time_sec"] for r in rs]))
         lines.append(f"{name} & " + " & ".join(cells) + " \\\\")
     lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
     return "\n".join(lines)
@@ -180,10 +175,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--results", type=Path, default=Path("results"))
     parser.add_argument("--out", type=Path, default=Path("tables"))
-    parser.add_argument("--no-timeout-marks", action="store_true", help="do not parenthesise timed-out entries")
     args = parser.parse_args()
-    global MARK_TIMEOUTS
-    MARK_TIMEOUTS = not args.no_timeout_marks
     args.out.mkdir(parents=True, exist_ok=True)
 
     shuffle = Records([args.results / "shuffle" / "shuffle_recovery.json"])
@@ -194,22 +186,13 @@ def main() -> None:
             args.results / "shuffle_pretrained_fp64" / "shuffle_recovery.json",
         ]
     )
-    random_models = [("mlp5", "MLP5"), ("vgg11", "VGG11"), ("resnet18", "ResNet18")]
-    pre_models = [("mlp5", "MLP5"), ("vgg11-pretrained", "VGG11"), ("resnet18-pretrained", "ResNet18")]
+    models = [("mlp5", "MLP5"), ("vgg11-pretrained", "VGG11"), ("resnet18-pretrained", "ResNet18")]
     cap1 = "L1 distance (converted by $\\log(1+x)$) and Precision (\\%) of alignment algorithms across standard architectures (MLP, CNN)"  # noqa: E501
+    cap4 = "Alignment computation time (mean and standard deviation, [sec])"
     tables = {
-        "table1_random": quality_table(shuffle, random_models, cap1, "tab:shuffle"),
-        "table1_pretrained": quality_table(pretrained, pre_models, cap1 + NOTE_PRETRAINED, "tab:shuffle"),
+        "table1": quality_table(pretrained, models, cap1 + NOTE_PRETRAINED, "tab:shuffle"),
         "table2": nerf_table(shuffle),
-        "supp_table4_random": time_table(
-            shuffle, random_models, "Alignment computation time (mean and standard deviation, [sec])", "tab:time"
-        ),
-        "supp_table4_pretrained": time_table(
-            pretrained,
-            pre_models,
-            "Alignment computation time (mean and standard deviation, [sec])" + NOTE_PRETRAINED,
-            "tab:time",
-        ),
+        "supp_table4": time_table(pretrained, models, cap4 + NOTE_PRETRAINED, "tab:time"),
         "supp_table5": nerf_time_table(shuffle, args.results),
     }
     tex = "\n\n".join(f"% ---- {name} ----\n{body}" for name, body in tables.items())

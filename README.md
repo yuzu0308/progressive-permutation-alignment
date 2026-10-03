@@ -75,8 +75,18 @@ For other architectures, describe which weight axes share a permutation with a `
 |---|---|
 | Table 3, supp. Tables 1–3 (NeRF interpolation barrier) | `python scripts/reproduce_nerf.py --data-root data/nerf_synthetic --lambdas 0.5` then `python scripts/aggregate_lmc.py --methods naive wm prog-wm ours-no-ref ours` |
 | Fig. 4 (metrics along λ) | `python scripts/reproduce_nerf.py --data-root data/nerf_synthetic --methods naive wm prog-wm ours-no-ref ours` then `aggregate_lmc.py ... --plot figs/` |
-| Tables 1–2, supp. Tables 4–5 (shuffle recovery, time) | `python scripts/shuffle_recovery.py --models mlp5 resnet18 vgg11 nerf` |
+| Tables 1–2, supp. Tables 4–5 (shuffle recovery, time) | see below |
 | Single pair, any method | `python scripts/align_nerf.py --method ours --model-a ... --model-b ... --out ...` and `python scripts/eval_lmc.py ...` |
+
+Shuffle recovery (MLP5 and NeRF; VGG11 and ResNet18 with the ImageNet weights of torchvision, where the
+proposed method runs in float64), then the LaTeX tables:
+
+```bash
+python scripts/shuffle_recovery.py --models mlp5 nerf
+python scripts/shuffle_recovery.py --models vgg11 resnet18 --pretrained --out results/shuffle_pretrained
+python scripts/shuffle_recovery.py --models resnet18 --pretrained --methods ours-no-ref ours --dtype float64     --out results/shuffle_pretrained_fp64
+python scripts/make_tables.py
+```
 
 Method names: `ours`, `ours-no-ref`, the ablations `ours-no-svd[-no-ref]`, `ours-tau2[-no-ref]`,
 `ours-tau5[-no-ref]`, and the baselines `naive`, `wm`, `prog-wm`, `ot4p-{0.3,0.5,0.7}`,
@@ -86,7 +96,7 @@ Method names: `ours`, `ours-no-ref`, the ablations `ours-no-svd[-no-ref]`, `ours
 ## Results obtained with this code
 
 NeRF interpolation barrier at λ = 0.5, mean over the 8 scenes of NeRF Synthetic (10 test views each), seeds
-42 → 100, metrics on the float renders (RTX 5090). OT4P baselines with `--seed 0`.
+42 → 100 (RTX 5090).
 
 | Method | RMSE ↓ | PSNR ↑ | SSIM ↑ |
 |---|---:|---:|---:|
@@ -101,48 +111,27 @@ NeRF interpolation barrier at λ = 0.5, mean over the 8 scenes of NeRF Synthetic
 | **Ours** | **0.199** | **14.40** | **0.710** |
 
 Shuffle recovery (model B is a randomly permuted copy of model A): precision of the recovered permutation
-in %, mean over 5 seeds (MLP5 and ResNet18, random initialisation) or 8 scenes (NeRF). WM, Progressive WM
-and Ours recover every permutation exactly (L1 = 0) in all three settings.
+in %, mean over 5 seeds (MLP5, VGG11, ResNet18) or 8 scenes (NeRF).
 
-| Method | MLP5 | ResNet18 | NeRF |
-|---|---:|---:|---:|
-| OT4P (τ = 0.3 / 0.5 / 0.7) | 100 / 100 / 100 | 99.90 / 99.92 / 99.88 | 7.51 / 99.16 / 99.19 |
-| Progressive OT4P (τ = 0.3 / 0.5 / 0.7) | 34.67 / 51.76 / 66.78 | 32.60 / 45.73 / 52.94 | 1.39 / 3.66 / 6.39 |
-| WM, Progressive WM, Ours | 100 | 100 | 100 |
+| Method | MLP5 | VGG11 | ResNet18 | NeRF |
+|---|---:|---:|---:|---:|
+| OT4P (τ = 0.3 / 0.5 / 0.7) | 100 / 100 / 100 | 99.74 / 99.64 / 99.74 | 99.42 / 99.45 / 99.29 | 7.51 / 99.16 / 99.19 |
+| Progressive OT4P (τ = 0.3 / 0.5 / 0.7) | 34.67 / 51.76 / 66.78 | 74.88 / 97.58 / 99.15 | 54.53 / 58.06 / 60.37 | 1.39 / 3.66 / 6.39 |
+| WM, Progressive WM, Ours | 100 | 100 | 100 | 100 |
 
-## Notes on reproducibility
+## Notes
 
 * The implementation reproduces the permutations of the code used for the paper bit-for-bit
-  (`pytest tests/test_align.py`, needs the downloaded weights), and the rendered images of the proposed
-  method and its ablations are pixel-identical to the ones behind the paper tables.
-* Layer order: stage 1 visits the permutation groups in `sorted` order of their ids, which for the NeRF spec
-  processes the colour-head groups before the trunk groups of each field. This is the order used for the
-  paper; pass `order=` to `align` to change it.
-* Correlations are normalised per layer (Frobenius norm) before summation, and each temperature runs up to
-  100 sweeps until the alignment cost stops decreasing.
-* As in OT4P, the last column of the anchor is sign-flipped when its determinant is negative, so at τ = 1
-  the update equals `C` up to the sign of its last column.
-* The OT4P baselines follow the official implementation line by line (eigendecomposition power, no anchoring
-  to the identity, no exception handling) and are bit-identical to it; `variant="modified"` switches to the map
-  of our method. They start from random parameters and the original scripts did not fix a seed; ours default
-  to `--seed 0`, so their numbers differ slightly from the paper.
+  (`pytest tests/test_align.py`, needs the downloaded weights).
+* Stage 1 visits the permutation groups in `sorted` order of their ids (for the NeRF spec, the colour-head
+  groups before the trunk groups of each field); pass `order=` to `align` to change it.
+* The OT4P baselines follow the [official implementation](https://github.com/YamingGuo98/OT4P) line by line.
+  They start from random parameters, so the scripts fix the seed.
 * On GPUs newer than the CUDA toolkit of the installed PyTorch (e.g. an RTX 5090 with the CUDA 11.8 wheels),
-  PyTorch cannot JIT-compile the complex square root that OT4P's matrix power uses at τ = 0.5, and OT4P stops
-  with an error there, as the official code does. Pass `--ot4p-power-device cpu` to compute that power on the CPU.
-* Table 1 uses the ImageNet weights of torchvision for VGG11 / ResNet18
-  (`python scripts/shuffle_recovery.py --pretrained --models vgg11 resnet18 --ot4p-power-device cpu`); the
-  proposed method on ResNet18 is run with `--dtype float64`, because float32 cannot tell apart the near-zero
-  filters of its first convolution. `python scripts/make_tables.py --no-timeout-marks` writes the LaTeX tables.
-* Metrics: by default every method is evaluated the same way, on the float renders with torchmetrics' SSIM
-  (Gaussian window). This reproduces all RMSE / PSNR values of the paper. A few table entries were computed
-  differently in the paper; they can be obtained with the following options:
-
-  ```bash
-  # supp. Tables 2-3: SSIM of Naive / WM / Progressive WM (scikit-image SSIM on the saved PNGs)
-  python scripts/aggregate_lmc.py --ssim skimage --methods naive wm prog-wm
-  # supp. Table 3: "w/o Ref." rows of the two- and five-step schedules (averaged without lego)
-  python scripts/aggregate_lmc.py --scenes chair ficus hotdog mic ship materials drums --methods ours-tau2-no-ref ours-tau5-no-ref
-  ```
+  OT4P fails at τ = 0.5 because PyTorch cannot JIT-compile the complex square root of its matrix power. Pass
+  `--ot4p-power-device cpu` to compute that power on the CPU.
+* Pretrained ResNet18 has near-zero filters in its first convolution that float32 cannot tell apart; use
+  `--dtype float64` for the proposed method there.
 
 ## Citation
 
