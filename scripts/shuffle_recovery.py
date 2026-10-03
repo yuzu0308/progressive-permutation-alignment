@@ -117,6 +117,7 @@ def main() -> None:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--pretrained", action="store_true", help="ImageNet weights for VGG11 / ResNet18")
     parser.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
+    parser.add_argument("--skip", nargs="*", default=[], help="runs to skip, as model:case:method")
     parser.add_argument(
         "--ot4p-power-device",
         default=None,
@@ -139,7 +140,7 @@ def main() -> None:
         for case, spec, a, seed in cases(base_model, args.weights, pretrained, args.seeds):
             b, gt = shuffle(spec, a, seed)
             for method in args.methods:
-                if (model, case, method) in done:
+                if (model, case, method) in done or f"{model}:{case}:{method}" in args.skip:
                     continue
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()

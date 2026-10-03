@@ -122,10 +122,17 @@ and Ours recover every permutation exactly (L1 = 0) in all three settings.
   100 sweeps until the alignment cost stops decreasing.
 * As in OT4P, the last column of the anchor is sign-flipped when its determinant is negative, so at τ = 1
   the update equals `C` up to the sign of its last column.
-* The OT4P baselines use OT4P's original `orth2perm` (eigendecomposition power, no anchoring to the identity),
-  bit-identical to the upstream implementation; `variant="modified"` switches to the map of our method. They
-  start from random parameters and the original scripts did not fix a seed; ours default to `--seed 0`, so
-  their numbers differ slightly from the paper.
+* The OT4P baselines follow the official implementation line by line (eigendecomposition power, no anchoring
+  to the identity, no exception handling) and are bit-identical to it; `variant="modified"` switches to the map
+  of our method. They start from random parameters and the original scripts did not fix a seed; ours default
+  to `--seed 0`, so their numbers differ slightly from the paper.
+* On GPUs newer than the CUDA toolkit of the installed PyTorch (e.g. an RTX 5090 with the CUDA 11.8 wheels),
+  PyTorch cannot JIT-compile the complex square root that OT4P's matrix power uses at τ = 0.5, and OT4P stops
+  with an error there, as the official code does. Pass `--ot4p-power-device cpu` to compute that power on the CPU.
+* Table 1 uses the ImageNet weights of torchvision for VGG11 / ResNet18
+  (`python scripts/shuffle_recovery.py --pretrained --models vgg11 resnet18 --ot4p-power-device cpu`); the
+  proposed method on ResNet18 is run with `--dtype float64`, because float32 cannot tell apart the near-zero
+  filters of its first convolution. `python scripts/make_tables.py --no-timeout-marks` writes the LaTeX tables.
 * Metrics: by default every method is evaluated the same way, on the float renders with torchmetrics' SSIM
   (Gaussian window). This reproduces all RMSE / PSNR values of the paper. A few table entries were computed
   differently in the paper; they can be obtained with the following options:
