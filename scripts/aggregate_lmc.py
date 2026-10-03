@@ -23,34 +23,19 @@ SCENES = ["lego", "chair", "ficus", "hotdog", "mic", "ship", "materials", "drums
 METRICS = ("rmse", "psnr", "ssim")
 
 
-def load(
-    results: Path, scene: str, method: str, source: str, ssim: str, lmc_dir: str = "lmc"
-) -> Dict[str, Dict[str, List[float]]]:
+def load(results: Path, scene: str, method: str) -> Dict[str, Dict[str, List[float]]]:
     """Per-lambda metric lists of one scene/method.
 
     Args:
         results: Results root.
         scene: Scene name.
         method: Method name.
-        source: ``float`` or ``png`` (images the PSNR / RMSE are computed on).
-        ssim: ``torchmetrics`` (computed on ``source``) or ``skimage`` (always on the PNGs).
-        lmc_dir: Sub-directory holding ``lmc.json``.
 
     Returns:
         ``{lambda: {"psnr": [...], "rmse": [...], "ssim": [...]}}``.
-
-    Raises:
-        KeyError: If ``skimage`` SSIM was requested but not recorded (run ``add_skimage_ssim.py``).
     """
-    data = json.loads((results / scene / method / lmc_dir / "lmc.json").read_text())
-    metrics = {lam: dict(m) for lam, m in data[f"metrics_{source}"].items()}
-    if ssim == "skimage":
-        for lam, m in metrics.items():
-            png = data["metrics_png"][lam]
-            if "ssim_skimage" not in png:
-                raise KeyError(f"{scene}/{method}: no ssim_skimage, run scripts/add_skimage_ssim.py")
-            m["ssim"] = png["ssim_skimage"]
-    return metrics
+    data = json.loads((results / scene / method / "lmc" / "lmc.json").read_text())
+    return {lam: dict(m) for lam, m in data["metrics_float"].items()}
 
 
 def main() -> None:
@@ -59,17 +44,7 @@ def main() -> None:
     parser.add_argument("--results", type=Path, default=Path("results"))
     parser.add_argument("--methods", nargs="+", required=True)
     parser.add_argument("--scenes", nargs="+", default=SCENES)
-    parser.add_argument(
-        "--source", choices=["float", "png"], default="float", help="metrics on float renders (paper) or 8-bit PNGs"
-    )
-    parser.add_argument(
-        "--ssim",
-        choices=["torchmetrics", "skimage"],
-        default="torchmetrics",
-        help="SSIM implementation; the paper used skimage for the Naive/WM/Prog. WM rows of supp. Tables 2-3",
-    )
     parser.add_argument("--lam", default="0.5")
-    parser.add_argument("--lmc-dir", default="lmc", help="sub-directory holding lmc.json")
     parser.add_argument("--json", type=Path, default=None, help="also write the table as JSON")
     parser.add_argument("--plot", type=Path, default=None, help="directory for metric-vs-lambda plots")
     args = parser.parse_args()
@@ -78,19 +53,19 @@ def main() -> None:
     curves: Dict[str, Dict[str, List[float]]] = {}
     lams: List[str] = []
     for method in args.methods:
-        present = [s for s in args.scenes if (args.results / s / method / args.lmc_dir / "lmc.json").exists()]
+        present = [s for s in args.scenes if (args.results / s / method / "lmc" / "lmc.json").exists()]
         if len(present) != len(args.scenes):
             missing = sorted(set(args.scenes) - set(present))
             print(f"[warn] {method}: missing scenes {missing}; averaging over {len(present)}", file=sys.stderr)
         if not present:
             continue
-        per_scene = [load(args.results, s, method, args.source, args.ssim, args.lmc_dir) for s in present]
+        per_scene = [load(args.results, s, method) for s in present]
         lams = sorted(per_scene[0], key=float)
         table[method] = {m: float(np.mean([np.mean(d[args.lam][m]) for d in per_scene])) for m in METRICS}
         table[method]["num_scenes"] = len(present)
         curves[method] = {m: [float(np.mean([np.mean(d[lam][m]) for d in per_scene])) for lam in lams] for m in METRICS}
 
-    print(f"lambda={args.lam}, source={args.source}, ssim={args.ssim}, scenes={len(args.scenes)}")
+    print(f"lambda={args.lam}, scenes={len(args.scenes)}")
     print(f"{'method':24s} {'RMSE':>7s} {'PSNR':>7s} {'SSIM':>7s}  scenes")
     for method, row in table.items():
         print(f"{method:24s} {row['rmse']:7.3f} {row['psnr']:7.2f} {row['ssim']:7.3f}  {int(row['num_scenes'])}")
