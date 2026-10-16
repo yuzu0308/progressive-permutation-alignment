@@ -8,6 +8,12 @@
 <meta property="og:title" content="Progressive Permutation Alignment with Temperature-Controlled Spectral Sharpening">
 <meta property="og:description" content="ACCV 2026. Deterministic, lightweight neuron alignment that lowers the loss barrier between independently trained NeRFs.">
 <meta property="og:image" content="static/img/overview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"></script>
 <style>
   :root {
     --bg: #ffffff; --fg: #1c1c1e; --muted: #5f6368; --line: #e3e3e6; --card: #f6f6f8;
@@ -75,6 +81,9 @@
           border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
   footer { margin-top: 4rem; color: var(--muted); font-size: .85rem; text-align: center; }
   a { color: var(--accent); }
+  /* KaTeX defaults to 1.21em, which looks oversized next to the sans-serif body text. */
+  .katex { font-size: 1.08em; }
+  .steps .eq { display: block; margin: .5rem 0; text-align: center; overflow-x: auto; overflow-y: hidden; }
 </style>
 </head>
 <body>
@@ -98,7 +107,7 @@
 
 <figure>
   <img src="static/img/overview.png" alt="Overview: two independently trained neural fields are aligned layer by layer from input to output while the correlation matrices are sharpened toward permutations as the temperature decreases." width="1322" height="767">
-  <figcaption>Two independently trained neural fields N<sub>A</sub> and N<sub>B</sub> differ by hidden-unit permutations. Our method aligns them layer by layer, following the inter-layer dependency from input to output, and sharpens each layer's correlation matrix toward a permutation as the temperature decreases.</figcaption>
+  <figcaption>Two independently trained neural fields \(\mathcal{N}_A\) and \(\mathcal{N}_B\) differ by hidden-unit permutations. Our method aligns them layer by layer, following the inter-layer dependency from input to output, and sharpens each layer's correlation matrix toward a permutation as the temperature decreases.</figcaption>
 </figure>
 
 <h2>Abstract</h2>
@@ -107,21 +116,21 @@
 <h2>Method</h2>
 <figure>
   <img src="static/img/method.png" alt="Layer-wise update: correlation matrix, Hungarian anchor, spectral sharpening of the anchored correlation with temperature tau, and the updated soft permutation." width="1322" height="724">
-  <figcaption>Layer-wise update. The correlation matrix C<sub>l</sub> is anchored by its Hungarian solution P̂<sub>l</sub>; the singular values of P̂<sub>l</sub><sup>⊤</sup>C<sub>l</sub> are raised to the power τ, which moves the soft permutation toward P̂<sub>l</sub> as τ goes from 1 to 0.</figcaption>
+  <figcaption>Layer-wise update. The correlation matrix \(C_l\) is anchored by its Hungarian solution \(\hat{P}_l\); the singular values of \(\hat{P}_l^{\top} C_l\) are raised to the power \(\tau\), which moves the soft permutation toward \(\hat{P}_l\) as \(\tau\) goes from 1 to 0.</figcaption>
 </figure>
 <ol class="steps">
-  <li>For each layer, compute the correlation C<sub>l</sub> between model A and model B given the current (soft) permutations of the neighbouring layers.</li>
-  <li>Take the Hungarian solution P̂<sub>l</sub> as a discrete anchor and write M<sub>l</sub> = P̂<sub>l</sub><sup>⊤</sup>C<sub>l</sub> = UΣV<sup>⊤</sup>.</li>
-  <li>Update P<sub>l</sub> ← P̂<sub>l</sub> [ τ UΣ<sup>τ</sup>V<sup>⊤</sup> + (1 − τ) I ] and anneal τ over {1, 0.5, 0}. No gradients or inner optimisation loops are involved.</li>
+  <li>For each layer, compute the correlation \(C_l\) between model A and model B given the current (soft) permutations of the neighbouring layers.</li>
+  <li>Take the Hungarian solution \(\hat{P}_l\) as a discrete anchor and write \(M_l = \hat{P}_l^{\top} C_l = U \Sigma V^{\top}\).</li>
+  <li>Update <span class="eq">\(P_l \leftarrow \hat{P}_l \bigl[\, \tau\, U \Sigma^{\tau} V^{\top} + (1 - \tau)\, I \,\bigr]\)</span> and anneal \(\tau\) over \(\{1, 0.5, 0\}\). No gradients or inner optimisation loops are involved.</li>
   <li>Starting from the result, refine layer by layer with weight matching.</li>
 </ol>
 
 <h2>Interpolating independently trained NeRFs</h2>
-<p>Two vanilla NeRFs trained on the same scene with different seeds are interpolated as (1 − λ)·A + λ·B′, where B′ is model B after alignment. Without alignment the midpoint collapses into a uniform haze. After our alignment the barrier is lower: the object's shape and colours stay recognisable along the path, although the midpoint is still blurred.</p>
+<p>Two vanilla NeRFs trained on the same scene with different seeds are interpolated as \((1 - \lambda)\, A + \lambda\, B'\), where \(B'\) is model B after alignment. Without alignment the midpoint collapses into a uniform haze. After our alignment the barrier is lower: the object's shape and colours stay recognisable along the path, although the midpoint is still blurred.</p>
 <div class="demo">
   <div class="controls">
     <div class="scenes" role="group" aria-label="Scene" id="scenes"></div>
-    <label class="slider">λ <input id="lam" type="range" min="0" max="10" step="1" value="5" aria-label="Interpolation coefficient lambda"><output id="lamv" for="lam">λ = 0.5</output></label>
+    <label class="slider">\(\lambda\) <input id="lam" type="range" min="0" max="10" step="1" value="5" aria-label="Interpolation coefficient lambda"><output id="lamv" for="lam">λ = 0.5</output></label>
   </div>
   <div class="grid">
     <div><img id="img-naive" alt="Naive interpolation"><span>Naive</span></div>
@@ -132,7 +141,7 @@
 </div>
 
 <h2>Results</h2>
-<p>Loss barrier at the midpoint λ = 0.5, averaged over the 8 scenes of NeRF Synthetic (10 test views each).</p>
+<p>Loss barrier at the midpoint \(\lambda = 0.5\), averaged over the 8 scenes of NeRF Synthetic (10 test views each).</p>
 <div class="table-wrap">
 <table>
   <thead><tr><th>Method</th><th>RMSE ↓</th><th>PSNR ↑</th></tr></thead>
@@ -140,8 +149,8 @@
     <tr><td>Naive</td><td>0.491</td><td>6.21</td></tr>
     <tr><td>Weight Matching</td><td>0.294</td><td>11.07</td></tr>
     <tr><td>Progressive WM</td><td>0.306</td><td>10.64</td></tr>
-    <tr><td>OT4P (τ = 0.5)</td><td>0.495</td><td>6.12</td></tr>
-    <tr><td>Progressive OT4P (τ = 0.5)</td><td>0.493</td><td>6.17</td></tr>
+    <tr><td>OT4P (\(\tau = 0.5\))</td><td>0.495</td><td>6.12</td></tr>
+    <tr><td>Progressive OT4P (\(\tau = 0.5\))</td><td>0.493</td><td>6.17</td></tr>
     <tr><td>Ours w/o refinement</td><td>0.199</td><td>14.22</td></tr>
     <tr class="ours"><td>Ours</td><td>0.199</td><td>14.40</td></tr>
   </tbody>
@@ -174,7 +183,8 @@
   let scene = "lego";
   function render() {
     const l = (lam.value / 10).toFixed(1);
-    out.textContent = "λ = " + l;
+    if (window.katex) katex.render("\\lambda = " + l, out, { throwOnError: false });
+    else out.textContent = "λ = " + l;
     for (const m of ["naive", "wm", "ours"]) document.getElementById("img-" + m).src = `static/lmc/${scene}/${m}_${l}.jpg`;
     document.getElementById("img-gt").src = `static/lmc/${scene}/gt.jpg`;
     for (const b of box.children) b.setAttribute("aria-pressed", String(b.dataset.scene === scene));
@@ -187,6 +197,12 @@
   }
   lam.addEventListener("input", render);
   render();
+  // KaTeX is loaded with `defer`, so typeset once the document has been parsed.
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!window.renderMathInElement) { console.error("KaTeX failed to load; math is shown as TeX source."); return; }
+    renderMathInElement(document.body, { delimiters: [{ left: "\\(", right: "\\)", display: false }], throwOnError: false });
+    render();
+  });
   // Preload the current scene so that dragging the slider is smooth.
   function preload(s) { for (const m of ["naive", "wm", "ours"]) for (let i = 0; i <= 10; i++) new Image().src = `static/lmc/${s}/${m}_${(i / 10).toFixed(1)}.jpg`; }
   preload(scene);
