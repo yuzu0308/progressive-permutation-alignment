@@ -119,20 +119,6 @@ in %, mean over 5 seeds (MLP5, VGG11, ResNet18) or 8 scenes (NeRF).
 | Progressive OT4P (τ = 0.3 / 0.5 / 0.7) | 34.67 / 51.76 / 66.78 | 74.88 / 97.58 / 99.15 | 54.53 / 58.06 / 60.37 | 1.39 / 3.66 / 6.39 |
 | WM, Progressive WM, Ours | 100 | 100 | 100 | 100 |
 
-## Notes
-
-* The implementation reproduces the permutations of the code used for the paper bit-for-bit
-  (`pytest tests/test_align.py`, needs the downloaded weights).
-* Stage 1 visits the permutation groups in `sorted` order of their ids (for the NeRF spec, the colour-head
-  groups before the trunk groups of each field); pass `order=` to `align` to change it.
-* The OT4P baselines follow the [official implementation](https://github.com/YamingGuo98/OT4P) line by line.
-  They start from random parameters, so the scripts fix the seed.
-* On GPUs newer than the CUDA toolkit of the installed PyTorch (e.g. an RTX 5090 with the CUDA 11.8 wheels),
-  OT4P fails at τ = 0.5 because PyTorch cannot JIT-compile the complex square root of its matrix power. Pass
-  `--ot4p-power-device cpu` to compute that power on the CPU.
-* Pretrained ResNet18 has near-zero filters in its first convolution that float32 cannot tell apart; use
-  `--dtype float64` for the proposed method there.
-
 ## Citation
 
 ```bibtex
